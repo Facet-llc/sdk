@@ -1,0 +1,54 @@
+{
+  "name": "@facet-llc/payment-adapter-stripe",
+  "version": "0.2.2",
+  "private": false,
+  "type": "module",
+  "description": "Facet Terminal payment-rail adapter for Stripe (Cards, ACH, wallets). Implements FacetPaymentRailAdapter on top of the official stripe npm package. PaymentIntents with reserve-capture, refunds, disputes, and webhook signature verification.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/facet-llc/sdk.git",
+    "directory": "packages/payment-adapter-stripe"
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist/",
+    "LICENSE",
+    "NOTICE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "pnpm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      }
+    }
+  },
+  "dependencies": {
+    "@facet-llc/protocol": "workspace:*",
+    "stripe": "17.7.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "homepage": "https://github.com/facet-llc/sdk/tree/main/packages/payment-adapter-stripe",
+  "bugs": {
+    "url": "https://github.com/facet-llc/sdk/issues"
+  }
+}

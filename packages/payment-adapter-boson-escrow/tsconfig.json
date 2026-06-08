@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@bosonprotocol/common/src": [
+        "../../node_modules/.pnpm/@bosonprotocol+common@1.33.0-alpha.7/node_modules/@bosonprotocol/common/dist/cjs/index.d.ts"
+      ],
+      "@bosonprotocol/common/src/types": [
+        "../../node_modules/.pnpm/@bosonprotocol+common@1.33.0-alpha.7/node_modules/@bosonprotocol/common/dist/cjs/types/index.d.ts"
+      ]
+    }
+  },
+  "include": ["src/**/*", "test/**/*"]
+}

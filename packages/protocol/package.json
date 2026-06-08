@@ -1,0 +1,50 @@
+{
+  "name": "@facet-llc/protocol",
+  "version": "0.3.2",
+  "private": false,
+  "type": "module",
+  "description": "TypeScript types and reference parser for the Facet agent-commerce protocol: agents.txt v1.2, FacetPaymentRailAdapter interface, origination verifiers, and per-primitive request/response types. Zero runtime deps. Apache-2.0.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/facet-llc/sdk.git",
+    "directory": "packages/protocol"
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist/",
+    "LICENSE",
+    "NOTICE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "pnpm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      }
+    }
+  },
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "homepage": "https://github.com/facet-llc/sdk/tree/main/packages/protocol",
+  "bugs": {
+    "url": "https://github.com/facet-llc/sdk/issues"
+  }
+}

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+.turbo/
+.DS_Store
+*.log
+.env
+.env.local
+.env.*.local
+coverage/
+.nyc_output/
+*.tsbuildinfo
+.pnpm-store/
+pnpm-lock.yaml.bak

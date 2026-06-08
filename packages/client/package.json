@@ -1,0 +1,56 @@
+{
+  "name": "@facet-llc/client",
+  "version": "0.2.4",
+  "private": false,
+  "type": "module",
+  "description": "Agent-side client SDK for the Facet Terminal protocol. Handles KYA bearer tokens, structured error envelopes, X-Agent-Trace-Id propagation, X-Facet-RateLimit-* capture, and idempotency-key forwarding. Runs on Node 20+, Bun, and Deno. Native fetch + AbortController.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/facet-llc/sdk.git",
+    "directory": "packages/client"
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist/",
+    "LICENSE",
+    "NOTICE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "pnpm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      }
+    }
+  },
+  "dependencies": {
+    "@facet-llc/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "homepage": "https://github.com/facet-llc/sdk/tree/main/packages/client",
+  "bugs": {
+    "url": "https://github.com/facet-llc/sdk/issues"
+  }
+}

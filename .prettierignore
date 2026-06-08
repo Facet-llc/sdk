@@ -1,0 +1,8 @@
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+pnpm-lock.yaml
+packages/*/dist/
+packages/sdk-node/src/generated/

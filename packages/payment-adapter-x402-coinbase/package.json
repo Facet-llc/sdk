@@ -1,0 +1,57 @@
+{
+  "name": "@facet-llc/payment-adapter-x402-coinbase",
+  "version": "0.1.2",
+  "private": false,
+  "type": "module",
+  "description": "Facet Terminal payment-rail adapter for x402 USDC settlement on Base via the Coinbase facilitator. Handles agents originated by AWS AgentCore Payments, Coinbase AgentKit, or any other platform that settles over x402.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/facet-llc/sdk.git",
+    "directory": "packages/payment-adapter-x402-coinbase"
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist/",
+    "LICENSE",
+    "NOTICE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "pnpm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      }
+    }
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-agentcore": "3.1053.0",
+    "@coinbase/x402": "2.1.0",
+    "@facet-llc/protocol": "workspace:*",
+    "viem": "2.50.4",
+    "x402": "1.2.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "homepage": "https://github.com/facet-llc/sdk/tree/main/packages/payment-adapter-x402-coinbase",
+  "bugs": {
+    "url": "https://github.com/facet-llc/sdk/issues"
+  }
+}

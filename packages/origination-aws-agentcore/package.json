@@ -1,0 +1,55 @@
+{
+  "name": "@facet-llc/origination-aws-agentcore",
+  "version": "0.2.2",
+  "private": false,
+  "type": "module",
+  "description": "Facet helpers for AWS Bedrock AgentCore Payments. Includes a TypeScript port of the canonical Python PaymentManager class (agent-side x402 header generation via the official @aws-sdk/client-bedrock-agentcore) and an IssuerDirectVerifier fallback for unattested x402 flows.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/facet-llc/sdk.git",
+    "directory": "packages/origination-aws-agentcore"
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist/",
+    "LICENSE",
+    "NOTICE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "pnpm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      }
+    }
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-agentcore": "3.1053.0",
+    "@facet-llc/protocol": "workspace:*",
+    "jose": "5.10.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "homepage": "https://github.com/facet-llc/sdk/tree/main/packages/origination-aws-agentcore",
+  "bugs": {
+    "url": "https://github.com/facet-llc/sdk/issues"
+  }
+}
