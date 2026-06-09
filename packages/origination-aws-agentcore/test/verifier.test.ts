@@ -44,7 +44,7 @@ describe("IssuerDirectVerifier", () => {
   });
 
   // ───────────────────────────────────────────────────────────────────────
-  // �� char-set + namespace-prefix sanitization
+  // char-set + namespace-prefix sanitization
   // ───────────────────────────────────────────────────────────────────────
 
   it("rejects raw_attestation with non-printable / non-allowed chars (newline)", async () => {
@@ -93,6 +93,15 @@ describe("IssuerDirectVerifier", () => {
     const v = new IssuerDirectVerifier();
     const result = await v.verify({
       raw_attestation: "cdp:0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+      trace_id: "t",
+    });
+    expect(result.kind).toBe("rejected");
+  });
+
+  it("rejects raw_attestation starting with skyfire: prefix", async () => {
+    const v = new IssuerDirectVerifier();
+    const result = await v.verify({
+      raw_attestation: "skyfire:agent-abc",
       trace_id: "t",
     });
     expect(result.kind).toBe("rejected");

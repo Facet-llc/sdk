@@ -89,6 +89,7 @@ import {
 } from "@bosonprotocol/x402-core/schemes/escrow";
 import type { UnsignedFullOffer } from "@bosonprotocol/x402-core/eip712";
 import { buildOfferMetadata, type BuiltOfferMetadata, type OfferProductInfo } from "./metadata.ts";
+import { bindingMismatchNativeCode, isBindingMismatchError } from "./binding-error.ts";
 
 const PACKAGE_VERSION = "0.1.0";
 
@@ -116,9 +117,15 @@ const REVERIFY_BUDGET_MS = 15_000;
 const sleepMs = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Flow A commit action id — the only commit action this adapter accepts.
- *  Flow B (atomic commit+redeem) is intentionally rejected: the rail is a
- *  two-step escrow (commit → later redeem) so the buyer retains the
- *  fair-exchange guarantee. */
+ *  Flow B (atomic commit+redeem, `boson-createOfferCommitAndRedeem`) is
+ *  rejected today — NOT because it would forfeit the fair-exchange guarantee
+ *  (escrow + the post-redeem dispute window hold for Flow B too), but because
+ *  this rail's deferred-redeem option (`rail_metadata.redeem_policy`) needs
+ *  redeem to be a SEPARATE later step the host controls, and two-step keeps the
+ *  exchange in the pre-redeem cancel/revoke window until the host redeems.
+ *  Supporting Flow B (e.g. instant/digital goods, where commit+redeem in one
+ *  step is the natural fit) is a deliberate future choice, not a security
+ *  boundary. */
 const FLOW_A_COMMIT_ACTION = "boson-createOfferAndCommit";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -435,19 +442,30 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
     }
   }
 
-  /** Bind the escrowed (on-chain) price to the amount the host server is
-   *  capturing, before redeem releases it. Reads the exchange snapshot via the
-   *  configured `ExchangeReader` (the `price` field is the atomic escrowed
-   *  amount, decimal string) and returns an UNAUTHORIZED error result IFF the
-   *  escrowed price is known and does NOT equal `amount` — the attack case
-   *  (commit a cheap offer, redeem against an expensive reservation), which is
-   *  never legitimate traffic, so failing closed here cannot break a real
-   *  settlement. When the price cannot be read (no reader wired, exchange not
+  /** Bind the on-chain exchange to THIS merchant before redeem, reading the
+   *  snapshot via the configured `ExchangeReader`. Returns an UNAUTHORIZED
+   *  error result IFF a snapshot field is known and does NOT match what this
+   *  server committed:
+   *    - `seller` ≠ this merchant's offer signer — the case x402B #115
+   *      flags: the SDK's `redeem` handler takes only exchangeId + signedPayload
+   *      and does NOT check that the voucher belongs to this server's seller, so
+   *      a buyer-owned voucher from ANOTHER seller's offer would otherwise
+   *      redeem here (valid on-chain, unrelated to us → gas-sponsored relay
+   *      abuse or a cross-seller mix-up). The offer creator is gated to this
+   *      same address at commit (`gateRequirements`); this re-asserts it at
+   *      redeem. Seller identity — not price — is the load-bearing binding when
+   *      one buyer commits to several offers on this server.
+   *    - `exchangeToken` ≠ the merchant asset — defense-in-depth (USDC was also
+   *      constrained upstream + at commit).
+   *    - `price` ≠ `amount` — the original gate (commit a cheap offer, redeem
+   *      against an expensive reservation).
+   *  All three are never legitimate traffic, so failing closed cannot break a
+   *  real settlement. When a field cannot be read (no reader wired, exchange not
    *  yet readable, or a hard RPC error) this returns null and lets the existing
-   *  redeem + post-settle verify proceed — the fix tightens a real mismatch
-   *  without newly breaking settlements whose chain state is momentarily
-   *  unreadable. Currency was already constrained to USDC upstream. */
-  private async assertEscrowedAmount(
+   *  redeem + post-settle verify proceed — tightening a real mismatch without
+   *  newly breaking settlements whose chain state is momentarily unreadable.
+   *  Currency was already constrained to USDC upstream. */
+  private async assertExchangeBinding(
     cfg: BosonMerchantConfig,
     exchangeId: string,
     amount: CaptureInput["amount"],
@@ -469,12 +487,54 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
     let snapshot: Awaited<ReturnType<ExchangeReader["read"]>>;
     try {
       snapshot = await this.exchangeReaderFactory(cfg).read(exchangeId);
-    } catch {
-      // Hard RPC / binding error — do not newly block settlement on a read we
-      // could not complete; the redeem path's own verify still applies.
+    } catch (e) {
+      // A reader that ASSERTS the merchant binding (the host's production reader
+      // does) THROWS a BosonBindingMismatchError on a seller/asset mismatch. That
+      // is the authoritative on-chain mismatch signal and is PERMANENT, so we
+      // FAIL CLOSED with a non-retryable UNAUTHORIZED — distinct from a transient
+      // RPC / not-yet-indexed read error, which we still swallow and FAIL OPEN
+      // (returning null) so a momentary chain blip cannot block a real settlement
+      // (the redeem path's own verify still applies). Without this discrimination
+      // the in-gate seller/token checks below would be dead code behind an
+      // asserting reader (x402B #115 review).
+      if (isBindingMismatchError(e)) {
+        return makeError("UNAUTHORIZED", e.message, false, bindingMismatchNativeCode(e.kind));
+      }
       return null;
     }
     if (snapshot === null) return null;
+
+    // SELLER BINDING (x402B #115 review) — the on-chain seller must be
+    // this merchant's offer signer. Without it, a buyer could have the server
+    // relay a redeem for a voucher they own but that was committed against a
+    // DIFFERENT seller's offer. Fail-closed is safe: an exchange we committed is
+    // always sold by our signer (`gateRequirements` binds `offer.creator` to it
+    // at commit). These in-gate comparisons cover a reader that RETURNS a
+    // mismatching snapshot rather than throwing; an asserting reader is handled
+    // by the binding-mismatch branch in the catch above.
+    const escrowedSeller = typeof snapshot.seller === "string" ? snapshot.seller : null;
+    if (escrowedSeller !== null && !eqAddress(escrowedSeller, cfg.signer.address)) {
+      return makeError(
+        "UNAUTHORIZED",
+        `escrowed seller (${escrowedSeller}) is not this merchant's seller signer (${cfg.signer.address}); ` +
+          "refusing to redeem an exchange that was not committed against this server's offer",
+        false,
+        "escrow_seller_mismatch",
+      );
+    }
+
+    // TOKEN BINDING — the escrow settlement token must be the merchant asset.
+    const escrowedToken =
+      typeof snapshot.exchangeToken === "string" ? snapshot.exchangeToken : null;
+    if (escrowedToken !== null && !eqAddress(escrowedToken, cfg.asset)) {
+      return makeError(
+        "UNAUTHORIZED",
+        `escrowed token (${escrowedToken}) does not match the merchant asset (${cfg.asset})`,
+        false,
+        "escrow_token_mismatch",
+      );
+    }
+
     const escrowedPrice = typeof snapshot.price === "string" ? snapshot.price : null;
     if (escrowedPrice === null) return null;
 
@@ -561,13 +621,22 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
   // verify-time handle.
   //
   // REDEEM TIMING. commit (reserve) and redeem (capture) are SEPARATE steps:
-  // funds escrow at commit, and redeem only opens the dispute window — it does
-  // NOT release funds (release is the later complete step). So redeem can be
-  // submitted at ANY time after commit. For physical fulfilment the buyer SHOULD
-  // defer redeem until it confirms delivery (the merchant's preference is
-  // advertised as `rail_metadata.redeem_policy` on the quote), so the dispute
-  // window does not start before the goods ship. This adapter does not force the
-  // timing — it settles whatever redeem the caller submits, whenever submitted.
+  // funds escrow at commit, and redeem burns the buyer's rNFT and opens the
+  // dispute window — it does NOT release funds (release is the later complete
+  // step). In the CANONICAL Boson flow the buyer redeems to signal the purchase,
+  // which opens the dispute window and is the cue for the seller to ship; that
+  // window is the buyer's protection COVERING delivery (dispute if the goods
+  // never arrive or are not as described). Before redeem the buyer can cancel
+  // and the seller can revoke; after redeem only the dispute path remains.
+  //
+  // This rail can DIVERGE from that ordering via `rail_metadata.redeem_policy`:
+  // a merchant may advertise `deferred`, where the host holds the buyer's signed
+  // redeem and submits it on the fulfilment signal (e.g. Shopify
+  // `fulfillments/create`) rather than up front — keeping the exchange in the
+  // pre-redeem cancel/revoke window during shipping instead of the dispute
+  // window. That is a deliberate Facet choice, not the protocol default. The
+  // adapter does not force timing — it settles whatever redeem the caller
+  // submits, whenever submitted.
 
   async capture(input: CaptureInput): Promise<RailAdapterResult<CaptureOk>> {
     const cfg = readMerchantConfig(input.merchant_config);
@@ -584,17 +653,16 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
     }
     const fulfillment = readFulfillment(authority);
 
-    // AMOUNT BINDING (fail-closed) — `server.handlers.redeem` settles whatever
-    // was escrowed at commit; it takes only exchangeId + signedPayload and
-    // never checks the escrowed price against the amount the host server is
-    // capturing. Without this gate an agent could commit a ~$0 offer and
-    // redeem it to "settle" an expensive reservation. x402 binds the signed
-    // authorization to the server-derived amount; the escrow rail must too.
-    // We read the on-chain escrowed price (the same ExchangeReader the
-    // post-settle verify uses) and require it to equal the
-    // reservation-derived atomic amount the handler passes in `input.amount`.
-    const amountGate = await this.assertEscrowedAmount(cfg.value, exchangeId, input.amount);
-    if (amountGate !== null) return amountGate;
+    // EXCHANGE BINDING (fail-closed) — `server.handlers.redeem` settles whatever
+    // was escrowed at commit; it takes only exchangeId + signedPayload and never
+    // checks that the exchange belongs to this server's seller, nor that its
+    // token/price match the reservation. Without this gate a buyer could relay a
+    // redeem for a voucher from another seller's offer (x402B #115), or commit a
+    // ~$0 offer and redeem it to "settle" an expensive reservation. We read the
+    // on-chain snapshot (the same ExchangeReader the post-settle verify uses)
+    // and bind seller + token + price to this merchant before redeeming.
+    const bindingGate = await this.assertExchangeBinding(cfg.value, exchangeId, input.amount);
+    if (bindingGate !== null) return bindingGate;
 
     const built = this.buildServer(cfg.value);
     if (built.kind === "error") return built.error;
@@ -607,6 +675,14 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
         ...(fulfillment !== null ? { fulfillment } : {}),
       });
     } catch (e) {
+      // A binding mismatch surfaced by the SDK's own pre-action read is permanent
+      // (the same voucher will fail identically) — return a non-retryable
+      // UNAUTHORIZED, not a retryable SETTLEMENT_FAILED that invites resubmission.
+      // (Belt-and-suspenders: assertExchangeBinding above already catches this
+      // before redeem; this covers a reader that throws only on the SDK's read.)
+      if (isBindingMismatchError(e)) {
+        return makeError("UNAUTHORIZED", e.message, false, bindingMismatchNativeCode(e.kind));
+      }
       return makeError("SETTLEMENT_FAILED", `Boson redeem failed: ${asMessage(e)}`, true, null);
     }
 

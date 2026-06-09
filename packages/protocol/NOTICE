@@ -1,9 +1,9 @@
 @facet-llc/protocol
 ===================
 
-Copyright (c) 2026 Autonomi, LLC.
+Copyright (c) 2026 Facet, LLC.
 
-This product includes software developed by Autonomi, LLC
+This product includes software developed by Facet, LLC
 (https://facet.llc/).
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -29,7 +29,7 @@ published tarball contains only:
     - README.md
     - LICENSE                 (Apache License, Version 2.0)
     - NOTICE                  (this file)
-    - dist/                   (TypeScript compiled output authored by Autonomi)
+    - dist/                   (TypeScript compiled output authored by Facet)
 
 Build-time dependencies (`tsup`, `typescript`, `vitest`) are not
 included in the published tarball.
@@ -38,13 +38,13 @@ included in the published tarball.
 Specifications referenced
 --------------------------------------------------------------------------------
 
-This package implements the agents.txt v0.2 specification, published in
-the public facet-llc/spec repository under Apache-2.0. It also
-references the IETF JWT (RFC 7519)
+This package implements the agents.txt v0.2 specification, authored by
+Facet and maintained at `specs/agents.txt-v1.0.md` in the source
+repository under Apache-2.0. It also references the IETF JWT (RFC 7519)
 and JSON Web Key (RFC 7517) specifications under the IETF Trust
 Provisions.
 
 --------------------------------------------------------------------------------
-For license inquiries: legal@autonomi.llc
+For license inquiries: legal@facet.llc
 Source repository: https://github.com/facet-llc/sdk
 --------------------------------------------------------------------------------

@@ -33,7 +33,12 @@ export const ISSUER_DIRECT_RAW_RE = /^[a-zA-Z0-9:_\-]{1,256}$/;
 /** Forbidden prefixes — reject raw attestations that spoof another
  *  verifier's namespace. Update this list when a new verifier is added to
  *  the project. */
-export const FORBIDDEN_AID_PREFIXES: readonly string[] = ["agentcore:", "cdp:", "direct:"];
+export const FORBIDDEN_AID_PREFIXES: readonly string[] = [
+  "agentcore:",
+  "cdp:",
+  "skyfire:",
+  "direct:",
+];
 
 export class IssuerDirectVerifier implements FacetOriginationVerifier {
   public readonly metadata: OriginationVerifierMetadata = {

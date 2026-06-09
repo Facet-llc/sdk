@@ -45,7 +45,7 @@
   "devDependencies": {
     "tsup": "^8.5.0",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.0"
   },
   "homepage": "https://github.com/facet-llc/sdk/tree/main/packages/payment-adapter-stripe",
   "bugs": {

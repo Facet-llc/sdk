@@ -211,7 +211,7 @@ describe("FacetClient error handling", () => {
           message: "Missing Authorization: Bearer <kya-token> header.",
           retryable: false,
           retry_after_seconds: null,
-          suggest: { signup: "https://issuer.example.com/register" },
+          suggest: { signup: "https://issuer.skyfire.xyz/register?ref=facet" },
         },
       }),
     );
@@ -224,7 +224,7 @@ describe("FacetClient error handling", () => {
       const err = e as FacetClientError;
       expect(err.code).toBe("UNAUTHORIZED");
       expect(err.status).toBe(401);
-      expect(err.suggest?.signup).toBe("https://issuer.example.com/register");
+      expect(err.suggest?.signup).toBe("https://issuer.skyfire.xyz/register?ref=facet");
     }
   });
 

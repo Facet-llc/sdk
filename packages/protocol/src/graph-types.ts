@@ -12,7 +12,7 @@
 // type sets, kept aligned with the wire contract by a drift check.
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Closed enums — keep in sync with the Terminal's accepted values
+// Closed enums — must stay in lockstep with the SQL CHECK constraints
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type KgNodeType =
@@ -58,9 +58,10 @@ export interface MatchHit {
   readonly id: string;
   readonly ubi_id: string | null;
   readonly label: string;
-  /** Wire-shape note: `KgNodeType` is the authoritative catalog, but
-   *  new node_types may appear here before this union is updated, so
-   *  treat unknown values gracefully. */
+  /** Wire-shape note: the literal union `KgNodeType` is the
+   *  authoritative catalog, but the underlying Postgres column is
+   *  `text` so the handler returns whatever the DB row says. New
+   *  node_types reach this field before the union update. */
   readonly node_type: KgNodeType | string;
   readonly similarity: number;
   readonly properties: Readonly<Record<string, unknown>>;

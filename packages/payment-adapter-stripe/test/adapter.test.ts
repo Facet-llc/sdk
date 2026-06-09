@@ -13,9 +13,9 @@ import {
   type WebhookRejection,
 } from "../src/adapter.ts";
 
-// in-memory PaymentIntentStore for the cross-check tests. The
-// production wiring uses a database-backed implementation; this mock
-// matches the same interface.
+// In-memory PaymentIntentStore for the cross-check tests. The
+// production wiring uses a database-backed implementation (see
+// the database-backed store); this mock matches the same interface.
 function makeMemoryStore(seed: PaymentIntentRecord[] = []): PaymentIntentStore & {
   rows: Map<string, PaymentIntentRecord>;
   inserts: number;
@@ -645,7 +645,7 @@ describe("StripeAdapter.handleWebhook versioned secrets", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// �� Facet-side PaymentIntent identity cross-check
+// Facet-side PaymentIntent identity cross-check
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PaymentIntentStore cross-check", () => {
@@ -834,7 +834,7 @@ describe("PaymentIntentStore cross-check", () => {
   });
 
   it("backfills the store on first follow-up to an un-tracked PI (back-compat)", async () => {
-    // Simulates a PI that predates the migration — the store has
+    // Simulates a PI that predates the cross-check migration — the store has
     // no row, so capture treats this as a bootstrap and writes one
     // rather than rejecting.
     const capture = vi

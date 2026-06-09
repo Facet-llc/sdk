@@ -26,7 +26,7 @@ const manifest = parseAgentsTxt(body);
 
 console.log(manifest.facetVersion); // "1.2"
 console.log(manifest.terminal); // ["https://api.merchant.example.com/v1"]
-console.log(manifest.kyaIssuers); // ["https://issuer.example.com/.well-known/jwks.json"]
+console.log(manifest.kyaIssuers); // ["https://issuer.skyfire.xyz/.well-known/jwks.json"]
 console.log(manifest.capabilities); // ["catalog", "paywalled-content"]
 console.log(manifest.openApiUrl); // "https://api.merchant.example.com/v1/openapi.json"
 ```

@@ -11,7 +11,7 @@
 export type VerificationMethod = "well-known" | "dns";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Handler-side discriminated union for the verify-domain outcome
+// Handler-side discriminated union (mirror of domain-verify.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type VerifyDomainOutcome =

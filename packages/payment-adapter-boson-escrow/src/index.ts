@@ -16,6 +16,16 @@ export {
   type WebhookRejectionLogger,
 } from "./adapter.ts";
 
+// Typed binding-mismatch error: a reader that asserts the merchant binding
+// throws this on a seller/asset mismatch; the adapter maps it to a non-retryable
+// UNAUTHORIZED (fail-closed), distinct from a transient read error (fail-open).
+export {
+  BosonBindingMismatchError,
+  isBindingMismatchError,
+  bindingMismatchNativeCode,
+  type BindingMismatchKind,
+} from "./binding-error.ts";
+
 // BPIP-1 offer-metadata builder + the serve-route codec. The host server mounts
 // `GET /v1/boson/offer-metadata` over `decodeMetadataPath` so the on-chain
 // `metadataUri` resolves to the exact bytes `metadataHash` commits to.

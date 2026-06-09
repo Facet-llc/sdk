@@ -9,8 +9,9 @@
 //   POST /v1/place_bid
 //   POST /v1/get_bid_status
 //
-// `AuctionRow` is the full auction shape. `PublicAuction` is the
-// projection agents receive over the wire, with bidder identity
+// `AuctionRow` is the full database projection (including the
+// privacy-sensitive `current_bidder_aid`). `PublicAuction` is the
+// projection agents receive over the wire — bidder identity is
 // masked behind `has_high_bidder`.
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -19,10 +20,11 @@
 
 export type AuctionStatus = "scheduled" | "live" | "ended_sold" | "ended_no_sale";
 
-/** Full auction shape. `current_bidder_aid` is NOT exposed to
- *  non-owners on the wire — agents see `PublicAuction` (below), which
- *  masks bidder identity. This fuller shape is exported for callers
- *  that need the complete record. */
+/** Full auction row as stored in the auctions table. Includes
+ *  `current_bidder_aid` which is NOT exposed to non-owners on the
+ *  wire — agents see `PublicAuction` (below). Kept exported because
+ *  some Terminal-side dispatch code (place_bid → assert site, etc.)
+ *  needs the full shape. */
 export interface AuctionRow {
   readonly id: string;
   readonly site_id: string;
@@ -108,8 +110,7 @@ export interface PlaceBidResponse {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface BidSummary {
-  /** Numeric bid id; may become string-encoded in a future revision to
-   *  avoid JS safe-integer limits. */
+  /** Database serial — see B3 caveat on PlaceBidResponse.bid_id. */
   readonly id: number;
   readonly amount_minor: number;
   readonly max_bid_minor: number;

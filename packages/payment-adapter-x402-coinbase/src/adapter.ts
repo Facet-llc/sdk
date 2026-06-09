@@ -107,18 +107,18 @@ export interface X402CoinbaseAdapterConfig {
   /** Default merchant-readable description used in PaymentRequirements
    *  when the Terminal doesn't supply one. */
   readonly defaultDescription?: string;
-  /** the base-mainnet USDC EIP-712 domain `name`
+  /** The base-mainnet USDC EIP-712 domain `name`
    *  ("USD Coin") is unverified-on-chain. A `base` adapter refuses to
    *  construct unless this is explicitly true, forcing the operator to
    *  confirm `USDC.name()`/`version()` on Base mainnet before the flip.
    *  Ignored for base-sepolia (verified). Default: false. */
   readonly baseEip712Verified?: boolean;
-  /** reject EIP-3009 authorizations whose
+  /** Reject EIP-3009 authorizations whose
    *  `validBefore` is more than this many seconds in the future, bounding
    *  long-lived replay windows. Undefined = no bound (preserves current
    *  behavior; prod SHOULD set ~600). */
   readonly maxAuthWindowSeconds?: number;
-  /** independent on-chain settlement confirmation.
+  /** Independent on-chain settlement confirmation.
    *  Undefined = facilitator-trust only (current testnet behavior). MUST be
    *  set before `FACET_X402_NETWORK=base` (mainnet). */
   readonly confirmSettlement?: SettlementConfirmer;
@@ -139,7 +139,7 @@ export class X402CoinbaseAdapter implements FacetPaymentRailAdapter {
 
   constructor(cfg: X402CoinbaseAdapterConfig) {
     this.network = cfg.network;
-    // refuse to construct a base-mainnet adapter until
+    // Refuse to construct a base-mainnet adapter until
     // the operator has confirmed the USDC EIP-712 domain on-chain. A wrong
     // domain fails closed (verify rejects), but constructing on an unverified
     // constant invites a silent mainnet-day-1 breakage; make it explicit.
@@ -334,7 +334,7 @@ export class X402CoinbaseAdapter implements FacetPaymentRailAdapter {
       );
     }
 
-    // independently confirm the settlement landed
+    // Independently confirm the settlement landed
     // on-chain before reporting captured. Without a confirmer (testnet
     // default) we trust the facilitator's success flag; with one injected
     // (REQUIRED before the mainnet flip) we re-read the tx on a Facet-
@@ -402,7 +402,7 @@ export class X402CoinbaseAdapter implements FacetPaymentRailAdapter {
     };
   }
 
-  /** independently bind the
+  /** Independently bind the
    *  signed EIP-3009 authorization to the server-derived amount and bound its
    *  validity window — WITHOUT delegating to the facilitator. Returns an
    *  error result to short-circuit, or null when the authorization passes. */
@@ -410,7 +410,7 @@ export class X402CoinbaseAdapter implements FacetPaymentRailAdapter {
     evm: ExactEvmPayload,
     requiredAmount: number,
   ): RailAdapterResult<never> | null {
-    // the signed transfer value MUST equal the server-derived amount.
+    // The signed transfer value MUST equal the server-derived amount.
     // The facilitator also checks this against `requirements`, but Facet must
     // not delegate its own amount-provenance invariant.
     let signedValue: bigint;
@@ -429,7 +429,7 @@ export class X402CoinbaseAdapter implements FacetPaymentRailAdapter {
         "amount_mismatch",
       );
     }
-    // bound the validity window so a captured authorization is not
+    // Bound the validity window so a captured authorization is not
     // replay-eligible for an attacker-chosen (possibly multi-year) lifetime.
     const nowS = Math.floor(this.now() / 1000);
     const validAfter = Number(evm.authorization.validAfter);

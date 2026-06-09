@@ -11,8 +11,11 @@
 // per spec, which is itself a load-bearing signal that the SDK round-
 // trip works end-to-end against the live wire contract.
 //
-// `FACET_SMOKE_BASE_URL` overrides the target; it defaults to the
-// production base URL listed in the spec's `servers:` block.
+// `FACET_SMOKE_BASE_URL` overrides the target. The default points at
+// `api.facet.llc` (the deprecated legacy hostname listed in `servers:`)
+// because today it is the canonical live deployment serving v1/*; the
+// post-cutover canonical `terminal.facet.llc` will become the default
+// once its Cloudflare routing is updated (tracked outside Phase 8).
 
 import { describe, expect, it } from "vitest";
 import { createTerminalClient } from "../src/index.ts";
@@ -46,8 +49,10 @@ describe("sdk-node smoke against a live Facet Terminal", () => {
       userAgent: "@facet-llc/sdk-node smoke-test",
     });
     const { response } = await client.GET("/v1/version");
-    // The Terminal sets a trace-id header on every response. We accept
-    // either `x-facet-trace-id` or `x-agent-trace-id`; either confirms
+    // The Terminal sets a trace-id header on every response (the spec
+    // promises `X-Facet-Trace-Id`; today's deployment uses
+    // `x-agent-trace-id` — we accept either so the smoke does not
+    // tighten until the rename ships). Either header present confirms
     // we are actually hitting the Facet stack and not a proxy that ate
     // the request.
     const traceId =

@@ -350,8 +350,8 @@ export type {
 
 // FacetManifest is the structure of the YAML payload served by
 // /v1/schema (and the upcoming /v1/catalog-manifest.yaml). The
-// authoritative definition lives in the Terminal schema generator;
+// authoritative definition lives in @facet-llc/schema-generator-core;
 // we re-document the type-name here only as guidance for downstream
 // consumers — re-exporting across packages would create a circular
 // devDependency chain. Pull directly from
-// the Terminal schema generator when you need the manifest shape.
+// @facet-llc/schema-generator-core when you need the manifest shape.

@@ -43,7 +43,7 @@ function fakeFetch(script: (url: string) => ScriptedResponse | Promise<ScriptedR
 const VALID_V11 = [
   "Facet-Version: 1.1",
   "Terminal: https://api.merchant.example.com/v1",
-  "KYA-Issuers: https://issuer.example.com",
+  "KYA-Issuers: https://issuer.skyfire.xyz",
   "Capabilities: catalog, paywalled-content",
   "",
 ].join("\n");
@@ -58,7 +58,7 @@ describe("fetchAgentsTxt", () => {
     const manifest = await fetchAgentsTxt("merchant.example.com", { fetch });
     expect(manifest.facetVersion).toBe("1.1");
     expect(manifest.terminal).toBe("https://api.merchant.example.com/v1");
-    expect(manifest.kyaIssuers).toEqual(["https://issuer.example.com"]);
+    expect(manifest.kyaIssuers).toEqual(["https://issuer.skyfire.xyz"]);
     expect(manifest.capabilities).toEqual(["catalog", "paywalled-content"]);
   });
 
@@ -109,7 +109,7 @@ describe("fetchAgentsTxt", () => {
     const body = [
       "Facet-Version: 0.1",
       "Terminal: https://api.merchant.example.com/v1",
-      "KYA-Issuers: https://issuer.example.com",
+      "KYA-Issuers: https://issuer.skyfire.xyz",
       "",
     ].join("\n");
     const { fetch } = fakeFetch(() => ({ status: 200, body }));
@@ -119,12 +119,12 @@ describe("fetchAgentsTxt", () => {
     expect((err as UnsupportedVersionError).supported).toEqual(SUPPORTED_FACET_VERSIONS);
   });
 
-  it("accepts all supported versions (0.2 + 1.0 + 1.1)", async () => {
+  it("accepts all supported versions (0.2 + 1.0 + 1.1 + 1.2)", async () => {
     for (const v of SUPPORTED_FACET_VERSIONS) {
       const body = [
         `Facet-Version: ${v}`,
         "Terminal: https://api.merchant.example.com/v1",
-        "KYA-Issuers: https://issuer.example.com",
+        "KYA-Issuers: https://issuer.skyfire.xyz",
         "",
       ].join("\n");
       const { fetch } = fakeFetch(() => ({ status: 200, body }));
@@ -244,7 +244,7 @@ describe("discoverAndConnect", () => {
     const body = [
       "Facet-Version: 1.0",
       "Terminal: https://api.merchant.example.com/v1",
-      "KYA-Issuers: https://issuer.example.com",
+      "KYA-Issuers: https://issuer.skyfire.xyz",
       "",
     ].join("\n");
     const fetchImpl = (async () => new Response(body, { status: 200 })) as unknown as typeof fetch;
@@ -280,7 +280,7 @@ describe("discoverAndConnect (HTTP fixture server)", () => {
         const body = [
           "Facet-Version: 1.1",
           `Terminal: ${origin}/v1`,
-          "KYA-Issuers: https://issuer.example.com",
+          "KYA-Issuers: https://issuer.skyfire.xyz",
           "Capabilities: catalog",
           "",
         ].join("\n");
@@ -314,5 +314,157 @@ describe("discoverAndConnect (HTTP fixture server)", () => {
     expect(caps).toMatchObject({ tools: [{ name: "search" }] });
     expect(calls).toContain("/.well-known/agents.txt");
     expect(calls).toContain("/v1/v1/capabilities");
+  });
+});
+
+// ── v1.2 (regression: the live Terminal emits 1.2) ────────────────────────
+
+describe("fetchAgentsTxt — v1.2", () => {
+  it("includes 1.2 in SUPPORTED_FACET_VERSIONS", () => {
+    expect(SUPPORTED_FACET_VERSIONS).toContain("1.2");
+  });
+
+  it("accepts Facet-Version: 1.2 (what the current Terminal emits)", async () => {
+    const body = [
+      "Facet-Version: 1.2",
+      "Terminal: https://api.merchant.example.com/v1",
+      "KYA-Issuers: https://issuer.skyfire.xyz",
+      "OpenAPI: https://api.merchant.example.com/v1/openapi.json",
+      "",
+    ].join("\n");
+    const { fetch } = fakeFetch(() => ({ status: 200, body }));
+    const manifest = await fetchAgentsTxt("merchant.example.com", { fetch });
+    expect(manifest.facetVersion).toBe("1.2");
+    expect(manifest.openApiUrl).toBe("https://api.merchant.example.com/v1/openapi.json");
+  });
+});
+
+// ── storefront discovery-pointer fallback (404 on /.well-known/) ───────────
+
+describe("fetchAgentsTxt — storefront discovery-pointer fallback", () => {
+  const TERMINAL_AGENTS_TXT = "https://t.facet.llc/.well-known/agents.txt";
+  const MANIFEST = [
+    "Facet-Version: 1.2",
+    "Terminal: https://t.facet.llc/v1",
+    "KYA-Issuers: https://issuer.skyfire.xyz",
+    "",
+  ].join("\n");
+
+  // shop 404s /.well-known/agents.txt; its root returns `rootResp`; the
+  // pointed-at Terminal serves the manifest.
+  function storefront(rootResp: ScriptedResponse) {
+    return fakeFetch((url) => {
+      if (url === "https://shop.example.com/.well-known/agents.txt")
+        return { status: 404, body: "" };
+      if (url === "https://shop.example.com/") return rootResp;
+      if (url === TERMINAL_AGENTS_TXT) return { status: 200, body: MANIFEST };
+      return { status: 404, body: "" };
+    });
+  }
+
+  it('resolves via <link rel="agents"> in the storefront HTML', async () => {
+    const { fetch, calls } = storefront({
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8" },
+      body: `<html><head><link rel="agents" href="${TERMINAL_AGENTS_TXT}"></head><body>shop</body></html>`,
+    });
+    const m = await fetchAgentsTxt("shop.example.com", { fetch });
+    expect(m.facetVersion).toBe("1.2");
+    expect(m.terminal).toBe("https://t.facet.llc/v1");
+    expect(calls).toEqual([
+      "https://shop.example.com/.well-known/agents.txt",
+      "https://shop.example.com/",
+      TERMINAL_AGENTS_TXT,
+    ]);
+  });
+
+  it('resolves via <meta name="agents-txt"> (attribute order swapped)', async () => {
+    const { fetch } = storefront({
+      status: 200,
+      headers: { "content-type": "text/html" },
+      body: `<head><meta content="${TERMINAL_AGENTS_TXT}" name="agents-txt"/></head>`,
+    });
+    const m = await fetchAgentsTxt("shop.example.com", { fetch });
+    expect(m.terminal).toBe("https://t.facet.llc/v1");
+  });
+
+  it('resolves via an HTTP `Link: rel="agents"` header on the storefront root', async () => {
+    const { fetch } = storefront({
+      status: 200,
+      headers: { link: `<${TERMINAL_AGENTS_TXT}>; rel="agents"`, "content-type": "text/html" },
+      body: "<html></html>",
+    });
+    const m = await fetchAgentsTxt("shop.example.com", { fetch });
+    expect(m.terminal).toBe("https://t.facet.llc/v1");
+  });
+
+  it("decodes &amp; in the pointer href before fetching", async () => {
+    const withQuery = "https://t.facet.llc/.well-known/agents.txt?a=1&b=2";
+    const { fetch } = fakeFetch((url) => {
+      if (url === "https://shop.example.com/.well-known/agents.txt")
+        return { status: 404, body: "" };
+      if (url === "https://shop.example.com/") {
+        return {
+          status: 200,
+          headers: { "content-type": "text/html" },
+          body: `<link rel="agents" href="https://t.facet.llc/.well-known/agents.txt?a=1&amp;b=2">`,
+        };
+      }
+      if (url === withQuery) return { status: 200, body: MANIFEST };
+      return { status: 404, body: "" };
+    });
+    const m = await fetchAgentsTxt("shop.example.com", { fetch });
+    expect(m.terminal).toBe("https://t.facet.llc/v1");
+  });
+
+  it("throws NoManifestError when the storefront has no pointer", async () => {
+    const { fetch } = storefront({
+      status: 200,
+      headers: { "content-type": "text/html" },
+      body: "<html><head></head><body>just a shop</body></html>",
+    });
+    await expect(fetchAgentsTxt("shop.example.com", { fetch })).rejects.toBeInstanceOf(
+      NoManifestError,
+    );
+  });
+
+  it("ignores a non-https pointer (downgrade guard) → NoManifestError", async () => {
+    const { fetch } = storefront({
+      status: 200,
+      headers: { "content-type": "text/html" },
+      body: `<link rel="agents" href="http://t.facet.llc/.well-known/agents.txt">`,
+    });
+    await expect(fetchAgentsTxt("shop.example.com", { fetch })).rejects.toBeInstanceOf(
+      NoManifestError,
+    );
+  });
+
+  it("ignores a non-HTML storefront root → NoManifestError", async () => {
+    const { fetch } = storefront({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: `{"hint":"<link rel=\\"agents\\" href=\\"${TERMINAL_AGENTS_TXT}\\">"}`,
+    });
+    await expect(fetchAgentsTxt("shop.example.com", { fetch })).rejects.toBeInstanceOf(
+      NoManifestError,
+    );
+  });
+
+  it("propagates NoManifestError when the pointed-at manifest itself 404s", async () => {
+    const { fetch } = fakeFetch((url) => {
+      if (url === "https://shop.example.com/.well-known/agents.txt")
+        return { status: 404, body: "" };
+      if (url === "https://shop.example.com/") {
+        return {
+          status: 200,
+          headers: { "content-type": "text/html" },
+          body: `<link rel="agents" href="${TERMINAL_AGENTS_TXT}">`,
+        };
+      }
+      return { status: 404, body: "" }; // the Terminal 404s too
+    });
+    await expect(fetchAgentsTxt("shop.example.com", { fetch })).rejects.toBeInstanceOf(
+      NoManifestError,
+    );
   });
 });

@@ -48,6 +48,7 @@ import {
   type BosonMerchantConfig,
   type WebhookRejection,
 } from "../src/adapter.ts";
+import { BosonBindingMismatchError } from "../src/binding-error.ts";
 
 /** HMAC-SHA256 hex over `body` with `secret` — mirrors the signing scheme
  *  the adapter verifies (plain-hex form). */
@@ -143,25 +144,52 @@ function makeAdapter() {
   });
 }
 
-/** Build an exchange snapshot stub for the on-chain ExchangeReader. Only
- *  `price` (atomic escrowed amount) is load-bearing for the capture
- *  amount-binding gate; the rest satisfy the ExchangeSnapshot shape. */
-function snapshot(price: string) {
-  return { state: "Committed", seller: SELLER, exchangeToken: ASSET, price } as unknown as Awaited<
-    ReturnType<import("@bosonprotocol/x402-server").ExchangeReader["read"]>
-  >;
+/** Build an exchange snapshot stub for the on-chain ExchangeReader. `price`
+ *  (atomic escrowed amount), `seller`, and `exchangeToken` are the fields the
+ *  capture binding gate compares; they default to this merchant's values so a
+ *  matching snapshot redeems cleanly, and `over` lets a test inject a mismatch. */
+function snapshot(price: string, over: { seller?: string; exchangeToken?: string } = {}) {
+  return {
+    state: "Committed",
+    seller: over.seller ?? SELLER,
+    exchangeToken: over.exchangeToken ?? ASSET,
+    price,
+  } as unknown as Awaited<ReturnType<import("@bosonprotocol/x402-server").ExchangeReader["read"]>>;
 }
 
-/** Adapter whose on-chain reader returns a fixed escrowed price, so the
- *  capture amount-binding gate has a real value to compare against. */
-function makeAdapterWithEscrowedPrice(price: string) {
+/** Adapter whose on-chain reader returns the given snapshot, so the capture
+ *  binding gate has real seller/token/price values to compare against. */
+function makeAdapterReturning(snap: ReturnType<typeof snapshot>) {
   return new BosonEscrowAdapter({
     facilitatorUrl: FACILITATOR,
     rpcUrl: RPC,
-    exchangeReaderFactory: (_cfg: BosonMerchantConfig) => ({ read: async () => snapshot(price) }),
+    exchangeReaderFactory: (_cfg: BosonMerchantConfig) => ({ read: async () => snap }),
     mode: "development",
     now: () => Date.parse("2026-06-02T00:00:00.000Z"),
   });
+}
+
+/** Adapter whose on-chain reader THROWS on read — mirrors the host's production
+ *  reader, which asserts the merchant binding and throws (BosonBindingMismatchError
+ *  on a seller/asset mismatch, a plain Error on a transient RPC failure). */
+function makeAdapterWithThrowingReader(err: unknown) {
+  return new BosonEscrowAdapter({
+    facilitatorUrl: FACILITATOR,
+    rpcUrl: RPC,
+    exchangeReaderFactory: (_cfg: BosonMerchantConfig) => ({
+      read: async () => {
+        throw err;
+      },
+    }),
+    mode: "development",
+    now: () => Date.parse("2026-06-02T00:00:00.000Z"),
+  });
+}
+
+/** Adapter whose on-chain reader returns a fixed escrowed price (seller/token
+ *  matched to this merchant), so the capture price gate has a value to bind. */
+function makeAdapterWithEscrowedPrice(price: string) {
+  return makeAdapterReturning(snapshot(price));
 }
 
 const USDC = (amount: number) => ({ amount, currency: "USDC" });
@@ -507,6 +535,104 @@ describe("BosonEscrowAdapter.capture", () => {
       },
     });
     const res = await makeAdapterWithEscrowedPrice("1230000").capture(
+      captureInput({ exchange_id: "7", signed_payload: "0xabababab" }),
+    );
+    expect(res.kind).toBe("ok");
+    expect(h.redeemFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses to redeem a voucher whose on-chain seller is not this merchant's signer", async () => {
+    // x402B #115 review: the buyer owns a voucher (valid on-chain) that
+    // was committed against ANOTHER seller's offer and asks this server to relay
+    // its redeem. Price happens to match; seller does not — fail closed.
+    h.redeemFn.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: {
+        txHash: "0xredeem",
+        nextActions: { exchangeId: "7", exchangeState: "REDEEMED", next: [] },
+      },
+    });
+    const otherSeller = "0x9999999999999999999999999999999999999999";
+    const res = await makeAdapterReturning(snapshot("1230000", { seller: otherSeller })).capture(
+      captureInput({ exchange_id: "7", signed_payload: "0xabababab" }),
+    );
+    expect(res).toMatchObject({
+      kind: "error",
+      code: "UNAUTHORIZED",
+      native_code: "escrow_seller_mismatch",
+    });
+    expect(h.redeemFn).not.toHaveBeenCalled();
+  });
+
+  it("refuses to redeem when the escrowed token is not the merchant asset", async () => {
+    h.redeemFn.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: {
+        txHash: "0xredeem",
+        nextActions: { exchangeId: "7", exchangeState: "REDEEMED", next: [] },
+      },
+    });
+    const otherToken = "0x8888888888888888888888888888888888888888";
+    const res = await makeAdapterReturning(
+      snapshot("1230000", { exchangeToken: otherToken }),
+    ).capture(captureInput({ exchange_id: "7", signed_payload: "0xabababab" }));
+    expect(res).toMatchObject({
+      kind: "error",
+      code: "UNAUTHORIZED",
+      native_code: "escrow_token_mismatch",
+    });
+    expect(h.redeemFn).not.toHaveBeenCalled();
+  });
+
+  // Production-path coverage (x402B #115 review): the host's real reader ASSERTS
+  // the binding and THROWS on a mismatch, rather than returning a mismatching
+  // snapshot. The gate must map that throw to a non-retryable UNAUTHORIZED — not
+  // swallow it (fail-open, dead code) nor surface a retryable SETTLEMENT_FAILED.
+  it("maps a reader's BosonBindingMismatchError(seller) to a non-retryable UNAUTHORIZED", async () => {
+    const adapter = makeAdapterWithThrowingReader(
+      new BosonBindingMismatchError("seller", SELLER, "0x9999999999999999999999999999999999999999"),
+    );
+    const res = await adapter.capture(
+      captureInput({ exchange_id: "7", signed_payload: "0xabababab" }),
+    );
+    expect(res).toMatchObject({
+      kind: "error",
+      code: "UNAUTHORIZED",
+      native_code: "escrow_seller_mismatch",
+      retryable: false,
+    });
+    expect(h.redeemFn).not.toHaveBeenCalled();
+  });
+
+  it("maps a reader's BosonBindingMismatchError(asset) to a non-retryable UNAUTHORIZED", async () => {
+    const adapter = makeAdapterWithThrowingReader(
+      new BosonBindingMismatchError("asset", ASSET, "0x8888888888888888888888888888888888888888"),
+    );
+    const res = await adapter.capture(
+      captureInput({ exchange_id: "7", signed_payload: "0xabababab" }),
+    );
+    expect(res).toMatchObject({
+      kind: "error",
+      code: "UNAUTHORIZED",
+      native_code: "escrow_token_mismatch",
+      retryable: false,
+    });
+    expect(h.redeemFn).not.toHaveBeenCalled();
+  });
+
+  it("fails OPEN (proceeds to redeem) when the reader throws a transient (non-binding) error", async () => {
+    h.redeemFn.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: {
+        txHash: "0xredeem",
+        nextActions: { exchangeId: "7", exchangeState: "REDEEMED", next: [] },
+      },
+    });
+    const adapter = makeAdapterWithThrowingReader(new Error("RPC timeout / not yet indexed"));
+    const res = await adapter.capture(
       captureInput({ exchange_id: "7", signed_payload: "0xabababab" }),
     );
     expect(res.kind).toBe("ok");

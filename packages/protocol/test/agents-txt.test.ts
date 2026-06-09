@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { AgentsTxtError, parseAgentsTxt } from "../src/index.ts";
 
-// Examples copied verbatim from the agents.txt spec (facet-llc/spec) §5.
+// Examples copied verbatim from specs/agents.txt.md §5.
 const EXAMPLE_1 = `# /.well-known/agents.txt
 Facet-Version: 0.2
 Terminal: https://facet.acme-ingredients.com/v1
-KYA-Issuers: https://issuer.example.com, https://kya.acme-ingredients.com
+KYA-Issuers: https://issuer.skyfire.xyz, https://kya.acme-ingredients.com
 Pricing-Hint: 0.001 USDC/query, 0.01 USDC/transactional
 Rate-Limit: 5000/hour
 Reputation-Minimum: 70
@@ -15,7 +15,7 @@ Contact: agents@acme-ingredients.com
 const EXAMPLE_2 = `# /.well-known/agents.txt
 Facet-Version: 0.2
 Terminal: https://facet.legacyco-mfg.com/v1
-KYA-Issuers: https://issuer.example.com
+KYA-Issuers: https://issuer.skyfire.xyz
 Pricing-Hint: 0.005 USDC/query, 0.05 USDC/transactional
 Rate-Limit: 500/hour
 Reputation-Minimum: 85
@@ -29,7 +29,7 @@ Last-Updated: 2026-04-15T00:00:00Z
 const EXAMPLE_3 = `# /.well-known/agents.txt
 Facet-Version: 0.2
 Terminal: https://facet.beveragecp.com/v1
-KYA-Issuers: https://issuer.example.com
+KYA-Issuers: https://issuer.skyfire.xyz
 Alt-Identity: DID
 Pricing-Hint: 0.002 USDC/query, 0.02 USDC/transactional
 Rate-Limit: 2000/hour
@@ -47,7 +47,7 @@ describe("parseAgentsTxt v0.2", () => {
     expect(m.facetVersion).toBe("0.2");
     expect(m.terminal).toBe("https://facet.acme-ingredients.com/v1");
     expect(m.kyaIssuers).toEqual([
-      "https://issuer.example.com",
+      "https://issuer.skyfire.xyz",
       "https://kya.acme-ingredients.com",
     ]);
     expect(m.pricingHint).toBe("0.001 USDC/query, 0.01 USDC/transactional");
@@ -157,7 +157,7 @@ describe("parseAgentsTxt — v1.0 additions", () => {
   it("parses all six v1.0 optional fields", () => {
     const input = `Facet-Version: 1.0
 Terminal: https://terminal.facet.llc
-KYA-Issuers: https://issuer.example.com
+KYA-Issuers: https://issuer.skyfire.xyz
 Webhook-Events: order.settled, order.shipped, license.purchased
 Response-Signing: ed25519
 Response-Keys-URL: https://terminal.facet.llc/.well-known/facet-keys.json
@@ -180,7 +180,7 @@ Sdk-Version: ^0.2.0
   it("omits v1.0 fields entirely when absent (v0.2 docs stay well-formed)", () => {
     const input = `Facet-Version: 0.2
 Terminal: https://facet.example.com/v1
-KYA-Issuers: https://issuer.example.com
+KYA-Issuers: https://issuer.skyfire.xyz
 `;
     const m = parseAgentsTxt(input);
     expect(m.webhookEvents).toBeUndefined();
@@ -234,13 +234,13 @@ Webhook-Events:  order.settled ,  , price.changed,
 });
 
 // Phase 4 — agents.txt v1.1 additions (Capabilities, Regulated-Gates,
-// [business_index] section). Spec: the agents.txt spec (facet-llc/spec).
+// [business_index] section). Spec: specs/agents.txt-v1.1.md.
 describe("parseAgentsTxt — v1.1 additions", () => {
   it("parses a full v1.1 happy-path document", () => {
     // Adapted from spec §7.1 (multi-archetype F&B co-manufacturer).
     const input = `Facet-Version: 1.1
 Terminal: https://api.facet.acme-foods.example.com
-KYA-Issuers: https://issuer.example.com
+KYA-Issuers: https://issuer.skyfire.xyz
 Contact: agents@acme-foods.example.com
 Capabilities: catalog, quote-rfq, paywalled-content, credentialed
 Regulated-Gates: license:dea, kyc:basic
@@ -271,7 +271,7 @@ status: open_now
 
   it("rejects a v1.1 document missing Terminal", () => {
     const input = `Facet-Version: 1.1
-KYA-Issuers: https://issuer.example.com
+KYA-Issuers: https://issuer.skyfire.xyz
 Capabilities: catalog
 `;
     expect(() => parseAgentsTxt(input)).toThrow(/terminal/);
@@ -309,7 +309,7 @@ Regulated-Gates: age21, license:dea
   it("parses a mixed v1.0 + v1.1 document — both surfaces type cleanly", () => {
     const input = `Facet-Version: 1.1
 Terminal: https://api.facet.llc
-KYA-Issuers: https://issuer.example.com
+KYA-Issuers: https://issuer.skyfire.xyz
 Webhook-Events: order.settled, booking.confirmed, gate.failed
 Response-Signing: ed25519
 Commerce-Rails: stripe/destination-charge, coin/usdc-base
@@ -352,7 +352,7 @@ Webhook-Events: order.settled
     // SDK chip can pick them up later without losing data today.
     const input = `Facet-Version: 1.1
 Terminal: https://api.bobs-plumbing.example.com
-KYA-Issuers: https://issuer.example.com
+KYA-Issuers: https://issuer.skyfire.xyz
 Capabilities: view-handoff, booking
 Booking-Strategy: square_appt
 Hold-Duration-Seconds: 600
@@ -384,12 +384,12 @@ license: federal=DEA; type=registrant; number=BX-1
 });
 
 // Phase 5 of openapi-as-contract — agents.txt v1.2 (additive `OpenAPI:` field).
-// Spec: the agents.txt spec (facet-llc/spec) §10.1.
+// Spec: specs/agents.txt-v1.1.md §10.1.
 describe("parseAgentsTxt — v1.2 additions", () => {
   it("parses the OpenAPI field on a v1.2 document", () => {
     const input = `Facet-Version: 1.2
 Terminal: https://terminal.facet.llc
-KYA-Issuers: https://issuer.example.com
+KYA-Issuers: https://issuer.skyfire.xyz
 OpenAPI: https://terminal.facet.llc/v1/openapi.json
 `;
     const m = parseAgentsTxt(input);
@@ -453,7 +453,7 @@ OpenAPI: https://x/v1/openapi.json
   it("co-exists with v1.0 + v1.1 fields without leakage", () => {
     const input = `Facet-Version: 1.2
 Terminal: https://api.facet.llc
-KYA-Issuers: https://issuer.example.com
+KYA-Issuers: https://issuer.skyfire.xyz
 Webhook-Events: order.settled, license.purchased
 Response-Signing: ed25519
 Commerce-Rails: stripe/destination-charge

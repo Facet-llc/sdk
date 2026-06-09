@@ -18,7 +18,7 @@
 // Verifiers are pluggable so a merchant can opt in to:
 //   - issuer/aws-agentcore   — AgentCore PaymentManager-signed JWTs
 //   - issuer/coinbase-cdp    — CDP-issued AgentKit credentials
-//   - issuer/<voucher>       — detached voucher signatures
+//   - issuer/skyfire         — Skyfire voucher signatures
 //   - issuer/direct          — no attestation, agent presents only the
 //                              x402 signature (lowest trust tier)
 //   - issuer/<custom>        — merchants can register their own
@@ -35,7 +35,7 @@ export type AttestationKind =
    *  `issuer_url + /.well-known/jwks.json`. */
   | "jwt"
   /** Detached signature over a canonical message envelope. Used by
-   *  voucher-style issuers. */
+   *  voucher-style issuers (Skyfire). */
   | "voucher"
   /** HMAC of a request body with a pre-shared key. Used for
    *  low-stakes / internal scenarios. */
@@ -87,7 +87,7 @@ export interface AgentPrincipal {
    *  Examples:
    *    - "agentcore:arn:aws:bedrock:us-east-1:123456789012:agent/MyAgent"
    *    - "cdp:0x71C7…1234"
-   *    - "voucher:vch_01H…"
+   *    - "skyfire:vch_01H…"
    *    - "direct:0x71C7…1234" (just the wallet address) */
   readonly aid: string;
   /** Matches `OriginationVerifierMetadata.id`. */

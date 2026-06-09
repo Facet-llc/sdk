@@ -1,5 +1,5 @@
 // Reference parser for the `agents.txt` v0.2 + v1.0 + v1.1 + v1.2 discovery
-// manifest. Spec: the agents.txt spec (facet-llc/spec) (also covers v0.2 + v1.0 + v1.2
+// manifest. Spec: specs/agents.txt-v1.1.md (also covers v0.2 + v1.0 + v1.2
 // back-compat — v1.2 is a single-field additive bump, see §11 of the spec).
 // Parser accepts all four versions; each spec rev is purely additive —
 // a v0.2 / v1.0 / v1.1 document remains fully valid under v1.2 parsing.

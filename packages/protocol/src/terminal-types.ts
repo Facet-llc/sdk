@@ -239,8 +239,8 @@ export interface SearchResponse {
 // reserve, and freezes onto the Order at settle. The destination is NEVER
 // stored on the order as plaintext PII — only an opaque `fulfillment_ref`
 // (Phase 1, vaulted) or sealed `ciphertext` (Phase 2, blind-courier) does.
-// These types are additive + optional; Terminals that have not enabled the
-// fulfillment primitive ignore them.
+// These types are additive + optional so the surface ships dark until the
+// fulfillment gate is wired.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // What a SKU is, which decides whether a destination is required. Only
@@ -315,8 +315,7 @@ export interface QuoteRequest {
   // primitive is enabled — quote rejects with FULFILLMENT_REQUIRED if absent,
   // or UNDELIVERABLE if the address validates but can't ship. Bound into the
   // quote_token so it can't be swapped between quote and settle. Omit for
-  // digital/service SKUs. (Additive — ignored by Terminals that have not
-  // enabled the fulfillment primitive.)
+  // digital/service SKUs. (Additive — ignored while the primitive ships dark.)
   readonly fulfillment?: FulfillmentInput;
 }
 
@@ -732,7 +731,8 @@ export interface Order {
   readonly created_at: string;
   readonly settled_at: string | null;
   // Opaque handle to the vaulted ship-to destination — NEVER the raw address.
-  // Present on physical-goods orders once the fulfillment primitive is live.
+  // Present on physical-goods orders once the fulfillment primitive is live;
+  // only the merchant-scoped, service-role write-back path can resolve it.
   readonly fulfillment_ref?: string;
   // Shipments posted back by the merchant's `fulfillments/create` webhook
   // (→ `order.shipped`). Empty/absent until the order is fulfilled.
@@ -742,9 +742,9 @@ export interface Order {
 export interface SettleRequest {
   readonly reservation_id: string;
   // Optional KYAPay `charge` proof. When provided, the Terminal MAY verify
-  // it against the calling agent + reservation total. The charge AMOUNT is
-  // never read from this field — it is derived server-side from the
-  // reservation.
+  // it against the calling agent + reservation total; when absent, dev-mode
+  // synthesizes a placeholder charge id. Real KYAPay integration replaces
+  // this field's contract without a wire-shape change.
   readonly kya_charge_token?: string;
   // Optional settlement-rail hint: "usdc-base" | "visa" | "mc" | ...
   // KYAPay picks the rail via its `stp` claim; this is informational.

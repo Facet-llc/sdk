@@ -1,9 +1,9 @@
 @facet-llc/client
 =================
 
-Copyright (c) 2026 Autonomi, LLC.
+Copyright (c) 2026 Facet, LLC.
 
-This product includes software developed by Autonomi, LLC
+This product includes software developed by Facet, LLC
 (https://facet.llc/).
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -24,7 +24,7 @@ Third-party components
 
 This package has exactly one runtime dependency:
 
-    @facet-llc/protocol   — Copyright (c) 2026 Autonomi, LLC.
+    @facet-llc/protocol   — Copyright (c) 2026 Facet, LLC.
                             Licensed under the Apache License, Version 2.0.
                             Authored by the same entity as this package.
 
@@ -34,7 +34,7 @@ The published tarball contains:
     - README.md
     - LICENSE                 (Apache License, Version 2.0)
     - NOTICE                  (this file)
-    - dist/                   (TypeScript compiled output authored by Autonomi)
+    - dist/                   (TypeScript compiled output authored by Facet)
 
 When installed from npm, the npm client resolves `@facet-llc/protocol`
 to a peer installation; no third-party code is bundled into this
@@ -60,6 +60,6 @@ All references are fair-use quotations for interoperability; no
 specification text is re-published verbatim in this package's source.
 
 --------------------------------------------------------------------------------
-For license inquiries: legal@autonomi.llc
+For license inquiries: legal@facet.llc
 Source repository: https://github.com/facet-llc/sdk
 --------------------------------------------------------------------------------

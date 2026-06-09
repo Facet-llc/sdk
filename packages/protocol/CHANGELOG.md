@@ -19,21 +19,22 @@ version (which can patch-version on docs / build-system changes alone).
   `unknownFields`.
 - v0.2 / v1.0 / v1.1 documents continue to parse unchanged — the field
   is purely additive.
-- Spec: agents.txt v1.1 §5 + §10.1 (v1.2 delta block) in the public
-  [facet-llc/spec](https://github.com/facet-llc/spec) repo.
+- Spec: `specs/agents.txt-v1.1.md` §5 + §10.1 (v1.2 delta block).
 - Phase 5 of openapi-as-contract.
 
-### note: version-constant unification
+### note: version-constant unification (Phase 2 deferred work)
 
-- `FACET_VERSION` now re-exports `FACET_PROTOCOL_VERSION` from this
-  package, so the two constants share a single source of truth and the
-  version string reported on `/v1/version` always matches. No protocol
-  shape change — `FACET_PROTOCOL_VERSION` stays at `0.2.0`.
+- `FACET_VERSION` (previously hardcoded `"0.1.0"` in
+  `@facet-llc/schema-generator-core/src/emit.ts`) is now a re-export of
+  `FACET_PROTOCOL_VERSION` from this package. The two constants now
+  share a single source of truth; the schema-generator emits the same
+  version string that the Terminal reports on `/v1/version`. No
+  protocol shape change — `FACET_PROTOCOL_VERSION` stays at `0.2.0`.
 
 ## 0.2.0 — Phase 2 of openapi-as-contract (2026-05-26)
 
 Additive expansion of the wire-contract surface. Brings typed-route
-coverage from 26 of 67 (39%) to 67 of 67 (100%). No existing
+coverage from 26 of 67 (39%) to 67 of 67 (100%) per the Phase 1 audit. No existing
 exports changed — every entry below is a new export.
 
 - `FACET_PROTOCOL_VERSION`: `0.1.0` → `0.2.0`
@@ -70,7 +71,9 @@ exports changed — every entry below is a new export.
   `PaymentsDispatchRequest` deliberately does NOT carry a
   `merchant_config` field — the Terminal discards any caller-supplied
   merchant_config and rebuilds it server-side from the authenticated
-  site. This type is the canonical, correct shape.
+  site row. The pre-Phase-2 local `DispatchRequestBody` in handler.ts
+  advertised a field that the handler silently ignored; this type is
+  the correct shape.
 - `src/stripe-types.ts` — `StripeOnboardingLink*`, `StripeBalance*`
   (with `StripeBalanceAmount`), `StripeCheckoutSession*` request /
   response types, plus the `StripeWebhookAck` discriminated union
@@ -96,8 +99,7 @@ exports changed — every entry below is a new export.
   `ProofKind` literal union, `PROOF_KINDS` constant array.
 - `CalendlyWebhookResponse` (discriminated union),
   `CalendlyWebhookAckIgnored`, `CalendlyWebhookAckNoMatch`,
-  `CalendlyWebhookAckConfirmed`, `CalendlyWebhookRateLimited` — the
-  ack variants returned on the Calendly webhook route.
+  `CalendlyWebhookAckConfirmed`, `CalendlyWebhookRateLimited`.
 
 ## 0.1.0 — initial release
 

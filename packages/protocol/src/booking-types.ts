@@ -13,7 +13,7 @@
 //
 // The adapter-side result types (AdapterSlot, HoldSlotResult, etc.)
 // are re-exported here so callers don't need to depend on
-// the Terminal schema generator just to type a Terminal response.
+// @facet-llc/schema-generator-core just to type a Terminal response.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Adapter-side result shapes — wire-shape parity with the booking

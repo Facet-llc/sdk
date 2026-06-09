@@ -48,12 +48,15 @@ export type {
 } from "./typed-client.ts";
 
 /**
- * agents.txt spec versions this SDK can consume. v0.2, v1.0, and v1.1
- * coexist indefinitely per spec §10. Documents declaring any other value
+ * agents.txt spec versions this SDK can consume. v0.2, v1.0, v1.1, and
+ * v1.2 coexist indefinitely per spec §10 — each rev is purely additive, so
+ * a newer minor parses cleanly here. Documents declaring any other value
  * cause `discoverAndConnect` / `fetchAgentsTxt` to throw
- * `UnsupportedVersionError`.
+ * `UnsupportedVersionError`. (v1.2 is what the current Terminal emits;
+ * omitting it made discovery throw `UnsupportedVersionError` against live
+ * merchants — it was a no-op for every real connection.)
  */
-export const SUPPORTED_FACET_VERSIONS = ["0.2", "1.0", "1.1"] as const;
+export const SUPPORTED_FACET_VERSIONS = ["0.2", "1.0", "1.1", "1.2"] as const;
 export type SupportedFacetVersion = (typeof SUPPORTED_FACET_VERSIONS)[number];
 
 const DEFAULT_TTL_MS = 60 * 60 * 1000;
@@ -181,7 +184,11 @@ export interface FetchAgentsTxtOptions {
  *   - Honors `Cache-Control: max-age` from the response; with no header
  *     the manifest is cached for `opts.ttlMs` (default 1h).
  *   - `Cache-Control: no-cache` / `no-store` disables caching.
- *   - 404 → `NoManifestError`. Any other non-2xx → `FetchError`.
+ *   - 404 → first attempt a storefront discovery-pointer fallback (an HTTP
+ *     `Link: <url>; rel="agents"` header, or a `<link rel="agents" href>` /
+ *     `<meta name="agents-txt" content>` in the host's HTML, pointing at an
+ *     absolute https agents.txt URL). If none resolves, `NoManifestError`.
+ *     Any other non-2xx → `FetchError`.
  *   - Parser throw → `InvalidManifestError`.
  *   - Manifest declares an unsupported `Facet-Version` →
  *     `UnsupportedVersionError`.
@@ -213,7 +220,24 @@ export async function fetchAgentsTxt(
   }
 
   if (res.status === 404) {
-    throw new NoManifestError(domain, 404);
+    // No /.well-known/agents.txt at the host (e.g. a Shopify storefront,
+    // which reserves /.well-known/ and 404s it). Look for a discovery
+    // pointer in the storefront itself and fetch the manifest it names.
+    const pointer = await discoverViaHtmlPointer(domain, fetchImpl, opts.signal);
+    if (pointer === null) {
+      throw new NoManifestError(domain, 404);
+    }
+    try {
+      res = await fetchImpl(pointer, {
+        headers: { accept: "text/plain, */*" },
+        ...(opts.signal !== undefined && { signal: opts.signal }),
+      });
+    } catch (err) {
+      throw new FetchError(domain, errMessage(err), { cause: err });
+    }
+    if (res.status === 404) {
+      throw new NoManifestError(domain, 404);
+    }
   }
   if (!res.ok) {
     throw new FetchError(domain, `HTTP ${res.status}`, { status: res.status });
@@ -315,11 +339,95 @@ export async function discoverAndConnect(
 // ── internals ──────────────────────────────────────────────────────────────
 
 function manifestUrl(domain: string): string {
+  return `${originOf(domain)}/.well-known/agents.txt`;
+}
+
+function originOf(domain: string): string {
   if (domain.startsWith("http://") || domain.startsWith("https://")) {
-    const u = new URL(domain);
-    return `${u.origin}/.well-known/agents.txt`;
+    return new URL(domain).origin;
   }
-  return `https://${domain}/.well-known/agents.txt`;
+  return `https://${domain}`;
+}
+
+// ── storefront discovery-pointer fallback ────────────────────────────────────
+// When /.well-known/agents.txt 404s (a Shopify storefront reserves the
+// /.well-known/ path), a merchant can still advertise their Terminal from the
+// storefront itself. We accept three pointer forms, all naming the absolute
+// https URL of the agents.txt manifest:
+//   - HTTP response header:  Link: <https://…/.well-known/agents.txt>; rel="agents"
+//   - HTML head element:     <link rel="agents" href="https://…/.well-known/agents.txt">
+//   - HTML head meta:        <meta name="agents-txt" content="https://…/.well-known/agents.txt">
+
+/** True only for an absolute `https:` URL. The pointer targets the Terminal
+ *  (typically a different host than the storefront), so it must be absolute;
+ *  requiring https guards the agent against a downgraded discovery target. */
+function isHttpsAbsolute(u: string): boolean {
+  try {
+    return new URL(u).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** First `rel="agents"` target in an RFC 8288 `Link` header, or null. */
+function linkHeaderAgentsTarget(header: string): string | null {
+  for (const part of header.split(",")) {
+    const m = part.match(/<([^>]+)>\s*;\s*(.+)/);
+    if (m === null) continue;
+    if (/\brel\s*=\s*"?agents"?/i.test(m[2] as string)) return (m[1] as string).trim();
+  }
+  return null;
+}
+
+/** A `<link rel="agents" href>` or `<meta name="agents-txt" content>` pointer
+ *  in HTML (attribute order not assumed). Scan is bounded to the first 100KB —
+ *  the head is near the top, so a large body is never run through the regex. */
+function htmlAgentsPointer(html: string): string | null {
+  const head = html.length > 100_000 ? html.slice(0, 100_000) : html;
+  const link =
+    head.match(/<link\b[^>]*\brel=["']agents["'][^>]*\bhref=["']([^"']+)["']/i) ??
+    head.match(/<link\b[^>]*\bhref=["']([^"']+)["'][^>]*\brel=["']agents["']/i);
+  if (link?.[1] !== undefined) return link[1].replace(/&amp;/g, "&");
+  const meta =
+    head.match(/<meta\b[^>]*\bname=["']agents-txt["'][^>]*\bcontent=["']([^"']+)["']/i) ??
+    head.match(/<meta\b[^>]*\bcontent=["']([^"']+)["'][^>]*\bname=["']agents-txt["']/i);
+  if (meta?.[1] !== undefined) return meta[1].replace(/&amp;/g, "&");
+  return null;
+}
+
+/** Fetch the storefront root for `domain` and return the first valid (absolute
+ *  https) discovery pointer found, or null. Best-effort: any network/parse
+ *  failure yields null and the caller throws NoManifestError. */
+async function discoverViaHtmlPointer(
+  domain: string,
+  fetchImpl: typeof fetch,
+  signal: AbortSignal | undefined,
+): Promise<string | null> {
+  let res: Response;
+  try {
+    res = await fetchImpl(`${originOf(domain)}/`, {
+      headers: { accept: "text/html, */*" },
+      ...(signal !== undefined && { signal }),
+    });
+  } catch {
+    return null;
+  }
+  const linkHeader = res.headers.get("link");
+  if (linkHeader !== null) {
+    const target = linkHeaderAgentsTarget(linkHeader);
+    if (target !== null && isHttpsAbsolute(target)) return target;
+  }
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!res.ok || !contentType.includes("text/html")) return null;
+  let html: string;
+  try {
+    html = await res.text();
+  } catch {
+    return null;
+  }
+  const pointer = htmlAgentsPointer(html);
+  if (pointer !== null && isHttpsAbsolute(pointer)) return pointer;
+  return null;
 }
 
 function isSupportedVersion(v: string): v is SupportedFacetVersion {

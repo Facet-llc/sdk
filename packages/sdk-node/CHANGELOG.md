@@ -8,6 +8,16 @@ this package adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **`fetchAgentsTxt` storefront discovery-pointer fallback + `Facet-Version:
+1.2` support.** On a `404` at `/.well-known/agents.txt`, discovery now falls
+  back to a storefront pointer — an HTTP `Link: <url>; rel="agents"` header, a
+  `<link rel="agents" href>`, or a `<meta name="agents-txt" content>` in the
+  host's HTML (absolute-https only, one hop) — and fetches the manifest it names
+  (spec §7). This lets agents discover a Terminal on platforms that reserve
+  `/.well-known/` (e.g. Shopify storefronts). Also adds `1.2` to
+  `SUPPORTED_FACET_VERSIONS`: it's the version the live Terminal emits, and its
+  absence made `discoverAndConnect` throw `UnsupportedVersionError` against every
+  real merchant.
 - **Typed wire surface generated from
   `openapi/openapi.yaml`.** New exports:
   - `createTerminalClient(opts)` — builds an `openapi-fetch` client
@@ -19,11 +29,12 @@ this package adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     `CreateTerminalClientOptions`, `TypedTerminalClient`.
 - New dev script `scripts/regenerate.sh` that re-emits
   `src/generated/schema.d.ts` from the spec. Idempotent — running
-  twice produces no diff unless the spec changed.
+  twice produces no diff unless the spec changed. Wired into the
+  top-level `scripts/regenerate-sdks.sh` orchestrator.
 - Smoke test suite (`test/smoke.test.ts`) that drives the typed client
-  against a live Facet Terminal — kept in a separate
-  `vitest.smoke.config.ts` so the default run stays offline. Override
-  the target with `FACET_SMOKE_BASE_URL`.
+  against a live Facet Terminal — gated to the `sdk-smoke-test` CI
+  tier via a separate `vitest.smoke.config.ts`. Override the target
+  with `FACET_SMOKE_BASE_URL`.
 
 ### Changed
 
@@ -41,4 +52,5 @@ this package adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - Added `openapi-fetch@0.17.0` (runtime, exact-pinned).
 - Added `openapi-typescript@7.13.0` (dev, exact-pinned).
-- Both deps are exact-pinned per the package's supply-chain policy.
+- Both pins satisfy the supply-chain guardrail
+  (`scripts/check-pinned-deps.sh`).

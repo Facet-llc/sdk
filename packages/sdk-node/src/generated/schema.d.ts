@@ -167,7 +167,7 @@ export type paths = {
             path?: never;
             cookie?: never;
         };
-        /** Readiness probe. Checks that critical dependencies are reachable; returns 200 { status: 'ready' } when all are healthy, 503 { status: 'not_ready' } when any is down. Distinct from /v1/health (liveness). Intended for monitoring readiness checks — not for kill health-checks. */
+        /** Readiness probe. Checks that critical dependencies (Supabase) are reachable; returns 200 { status: 'ready' } when all are healthy, 503 { status: 'not_ready' } when any is down. Distinct from /v1/health (liveness). Intended for monitoring readiness checks — not for kill health-checks. */
         get: operations["getReady"];
         put?: never;
         post?: never;
@@ -1214,6 +1214,23 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/v1/boson/offer-metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Resolve a Boson offer's BPIP-1 metadata. Public + content-addressed: the `d` query param carries the base64url canonical metadata JSON, whose keccak-256 hash equals the on-chain offer.metadataHash. Returns the exact bytes the hash commits to, so any party can verify offer integrity without IPFS. */
+        get: operations["bosonOfferMetadata"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/shopify/webhook": {
         parameters: {
             query?: never;
@@ -1811,7 +1828,7 @@ export type components = {
             /** @description Per-dependency reachability outcomes. `supabase` is always present; further critical deps may appear as they are wired. */
             checks: {
                 /**
-                 * @description Reachability of the primary data dependency.
+                 * @description Supabase reachability — a bounded, RLS-bypassing read against `sites`.
                  * @enum {string}
                  */
                 supabase: "ok" | "fail";
@@ -2244,7 +2261,7 @@ export type components = {
             reservation_id: string;
             kya_charge_token?: string;
             rail?: string;
-            /** @description Optional rail-specific settlement authority artifact, captured via the configured payment rail. x402: { x_payment } (base64 X-PAYMENT EIP-3009 USDC authorization). Boson escrow: { exchange_id, signed_payload } (the buyer's redeem meta-tx). The charge AMOUNT is never read from here — it is derived server-side from the reservation. */
+            /** @description Optional rail-specific settlement authority artifact, captured via the configured payment rail. x402: { x_payment } (base64 X-PAYMENT EIP-3009 USDC authorization). Boson escrow: { exchange_id, signed_payload } (the buyer's redeem meta-tx). The charge AMOUNT is never read from here — it is derived server-side from the reservation. Absent → dev placeholder charge id. */
             authority?: {
                 [key: string]: unknown;
             };
@@ -2620,7 +2637,7 @@ export type components = {
             /** @description ISO 4217 code OR on-chain asset symbol (USD, USDC, …). */
             currency: string;
         };
-        /** @description Stable rail identifier — namespaces match /v1/terms.settlement_rails (e.g. 'coin/usdc-base', 'card/stripe', 'voucher/<issuer>'). */
+        /** @description Stable rail identifier — namespaces match /v1/terms.settlement_rails (e.g. 'coin/usdc-base', 'card/stripe', 'voucher/skyfire'). */
         RailId: string;
         DispatchAgentSummary: {
             aid: string;
@@ -3235,7 +3252,7 @@ export type components = {
             is_high_bidder: boolean;
         };
         BidSummary: {
-            /** @description Numeric bid id; may become string-encoded in a future revision to avoid JS safe-integer limits. */
+            /** @description Database serial — see B3 caveat on PlaceBidResponse.bid_id. */
             id: number;
             amount_minor: number;
             max_bid_minor: number;
@@ -3251,7 +3268,7 @@ export type components = {
             is_high_bidder: boolean;
         };
         /**
-         * @description Closed enumeration of KG node types; unknown values may appear before this list is updated.
+         * @description Closed enumeration of KG node types. Mirrors SQL CHECK constraints; the underlying Postgres column is `text` so new node_types reach this field before the union update.
          * @enum {string}
          */
         KgNodeType: "ingredient" | "regulation" | "certification" | "formulation" | "vendor" | "batch" | "capability" | "constraint" | "concept" | "module" | "agent" | "skill" | "tool_ref" | "business" | "jurisdiction" | "license_type" | "naics_class" | "corridor";
@@ -6203,6 +6220,38 @@ export interface operations {
             404: components["responses"]["FacetError"];
             429: components["responses"]["FacetRateLimited"];
             500: components["responses"]["FacetError"];
+        };
+    };
+    bosonOfferMetadata: {
+        parameters: {
+            query: {
+                d: string;
+            };
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resolve a Boson offer's BPIP-1 metadata. Public + content-addressed: the `d` query param carries the base64url canonical metadata JSON, whose keccak-256 hash equals the on-chain offer.metadataHash. Returns the exact bytes the hash commits to, so any party can verify offer integrity without IPFS. (application/json). */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
         };
     };
     shopifyWebhook: {

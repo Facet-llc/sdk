@@ -289,7 +289,7 @@ describe("CoinbaseCdpOriginationVerifier with cdpClient cross-check", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// �� required bind_to + replay cache + low-s normalization
+// required bind_to + replay cache + low-s normalization
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("bind_to is required", () => {

@@ -48,7 +48,7 @@ import type { FacetErrorCode } from "./terminal-types.ts";
  *    - "card/stripe"              — Stripe Cards / ACH / wallets
  *    - "card/visa-vic"            — Visa Intelligent Commerce
  *    - "card/mastercard-scof"     — Mastercard SCOF (Agent Pay)
- *    - "voucher/<issuer-id>"          — prepaid voucher from a KYA issuer
+ *    - "voucher/skyfire"          — Skyfire-issued prepaid voucher
  */
 export type RailId = string;
 
@@ -74,7 +74,7 @@ export interface RailAdapterMetadata {
   /** For crypto rails: network identifiers the adapter can settle on
    *  (e.g., ["base-mainnet", "base-sepolia"]). For card rails: card
    *  scheme identifiers (e.g., ["visa", "mastercard", "amex"]). For
-   *  voucher rails: the voucher issuer namespace. */
+   *  voucher rails: the voucher namespace ("skyfire"). */
   readonly networks: readonly string[];
   /** ISO 4217 currency codes the adapter accepts (e.g., ["USD", "EUR"]).
    *  Crypto rails advertise the on-chain asset symbol where there is no
@@ -157,7 +157,7 @@ export interface VerifyAuthorityInput {
    *    - Stripe: the payment_method_id or setup_intent_id
    *    - AgentCore session: the session_id + nonce
    *    - Boson: the exchange voucher
-   *    - Voucher issuer: the voucher token
+   *    - Skyfire: the voucher token
    *  Adapters parse and validate per their rail's spec. */
   readonly authority: Readonly<Record<string, unknown>>;
   /** The amount the agent is asking us to authorize for capture. */

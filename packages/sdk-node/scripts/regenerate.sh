@@ -8,11 +8,13 @@
 # (`discoverAndConnect`, `verifyResponseSignature`, `parseAgentsTxt`)
 # live alongside it in `src/` and stay hand-maintained.
 #
-# Run: `bash packages/sdk-node/scripts/regenerate.sh`
+# Local: `bash packages/sdk-node/scripts/regenerate.sh`
+# Top-level: `bash scripts/regenerate-sdks.sh`
 
 set -euo pipefail
 
-# Resolve the package directory regardless of where the script is invoked from.
+# Resolve the package directory regardless of where the script is invoked
+# from (top-level regenerate-sdks.sh sources its own cwd).
 pkg_dir="$(cd "$(dirname "$0")/.." && pwd)"
 repo_root="$(cd "${pkg_dir}/../.." && pwd)"
 spec="${repo_root}/openapi/openapi.yaml"
@@ -20,7 +22,7 @@ out="${pkg_dir}/src/generated/schema.d.ts"
 
 if [ ! -f "${spec}" ]; then
   echo "openapi/openapi.yaml not found at ${spec}" >&2
-  echo "Build the OpenAPI spec first." >&2
+  echo "Run scripts/build-openapi.sh first." >&2
   exit 1
 fi
 

@@ -424,11 +424,11 @@ describe("X402CoinbaseAdapter.capture", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// �� independent value check, validity window
-//, and on-chain settlement confirmation
+// Hardening — independent value check, validity window, and on-chain
+// settlement confirmation
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("X402CoinbaseAdapter P0 hardening", () => {
+describe("X402CoinbaseAdapter hardening", () => {
   it("rejects when the signed value != server-derived amount", async () => {
     const header = await buildSignedHeader({
       to: MERCHANT_ADDRESS,
