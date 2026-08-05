@@ -1,4 +1,4 @@
-# @facet-llc/protocol
+# @facet-llc/adapter
 
 TypeScript types and reference parser for the Facet agent-commerce protocol.
 
@@ -9,15 +9,15 @@ The spec lives at [`facet-llc/spec`](https://github.com/facet-llc/spec). This pa
 ## Install
 
 ```bash
-npm install @facet-llc/protocol
+npm install @facet-llc/adapter
 # or
-pnpm add @facet-llc/protocol
+pnpm add @facet-llc/adapter
 ```
 
 ## Parse an `agents.txt` manifest
 
 ```ts
-import { parseAgentsTxt } from "@facet-llc/protocol";
+import { parseAgentsTxt } from "@facet-llc/adapter";
 
 const body = await fetch("https://merchant.example.com/.well-known/agents.txt").then((r) =>
   r.text(),
@@ -36,7 +36,7 @@ Pass `{ strict: false }` for partial manifests (skips required-field validation)
 ## Build a payment-rail adapter
 
 ```ts
-import type { FacetPaymentRailAdapter, RailAdapterResult, CaptureOk } from "@facet-llc/protocol";
+import type { FacetPaymentRailAdapter, RailAdapterResult, CaptureOk } from "@facet-llc/adapter";
 
 export class MyRailAdapter implements FacetPaymentRailAdapter {
   async verifyAuthority(req): Promise<RailAdapterResult<{ authority_handle: string }>> {

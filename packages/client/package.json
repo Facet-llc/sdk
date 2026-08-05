@@ -1,6 +1,6 @@
 {
   "name": "@facet-llc/client",
-  "version": "0.2.4",
+  "version": "0.4.0",
   "private": false,
   "type": "module",
   "description": "Agent-side client SDK for the Facet Terminal protocol. Handles KYA bearer tokens, structured error envelopes, X-Agent-Trace-Id propagation, X-Facet-RateLimit-* capture, and idempotency-key forwarding. Runs on Node 20+, Bun, and Deno. Native fetch + AbortController.",
@@ -39,12 +39,12 @@
     }
   },
   "dependencies": {
-    "@facet-llc/protocol": "workspace:*"
+    "@facet-llc/adapter": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8.5.0",
     "typescript": "^5.7.2",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.10"
   },
   "engines": {
     "node": ">=20.0.0"

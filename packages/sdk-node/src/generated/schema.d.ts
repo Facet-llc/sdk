@@ -21,23 +21,6 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    "/.well-known/microsoft-identity-association.json": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Microsoft Entra publisher-domain verification document. */
-        get: operations["getMsIdentityAssociation"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/.well-known/agents.txt": {
         parameters: {
             query?: never;
@@ -49,6 +32,193 @@ export type paths = {
         get: operations["getAgentsTxt"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/.well-known/ucp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Per-host UCP (Universal Commerce Protocol) business profile (RFC 8615). Advertises this merchant's UCP service endpoints, the llc.facet.x402 + llc.facet.boson_escrow payment handlers, and the ES256 signing keys. Returns 404 until the operator enables UCP via FACET_UCP_ENABLED. */
+        get: operations["getUcpProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/.well-known/oauth-protected-resource": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** OAuth 2.0 Protected Resource Metadata (RFC 9728) for this host's MCP endpoint. Names the canonical resource URI (<host>/ucp/mcp), the trusted authorization servers that may mint tokens for it, and the supported scopes, so a stock MCP client can start an OAuth flow from the 401 challenge. KYA remains a fully sufficient credential; this path is additive. Returns 404 until the operator enables UCP via FACET_UCP_ENABLED. */
+        get: operations["getOauthProtectedResource"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/llms.txt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Per-host curated discovery index for LLMs and agents that land on this Terminal directly, before ever making a tool call. Points at agents.txt, capabilities, terms, and the OpenAPI spec rather than duplicating them. */
+        get: operations["getLlmsTxt"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/robots.txt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Per-host crawler policy. A Facet Terminal is an API surface for agents, not a set of crawlable pages, so this allows all crawlers and points them at agents.txt as the real discovery entry point. */
+        get: operations["getRobotsTxt"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Per-host summary of which OMS is connected, which settlement rails are live (read from the live PaymentDispatcher registry, never a static list), and which webhook events this site can emit. */
+        get: operations["getIntegrationsJson"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/brand.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Per-host logo and brand colors, once the merchant has set them. Returns 404 until they do, mirroring the Microsoft-identity-association gate. */
+        get: operations["getBrandJson"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ucp/mcp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** UCP MCP (Model Context Protocol) catalog endpoint. JSON-RPC 2.0 over HTTP serving the dev.ucp.shopping catalog tools (search_catalog, lookup_catalog, get_product) for this merchant's product store. Public + activation-exempt; returns 404 until the operator enables UCP via FACET_UCP_ENABLED. Responses are RFC 9421 ES256-signed. */
+        post: operations["ucpMcp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ucp/v1/checkout-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** UCP checkout CREATE. Reserves a single server-priced line item and returns a checkout session advertising the llc.facet.x402 payment requirements (network, USDC, pay_to, amount). The amount + pay_to are SERVER-resolved from the reservation + the merchant's sites row, never the request body. Public + activation-exempt; returns 404 until the operator enables UCP via FACET_UCP_ENABLED. RFC 9421 ES256-signed. */
+        post: operations["ucpCheckoutCreate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ucp/v1/checkout-sessions/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** UCP checkout COMPLETE. Bridges the buyer's signed credential to the Terminal dispatcher authority and reuses the non-custodial settle path: the amount is re-derived server-side from the reservation and the rail adapter re-verifies the signature, seller, escrow, asset and amount before a cent moves. An x402_authorization captures to the merchant's pay_to; a boson_commit_authorization COMMITS the escrow with the buyer's own x402B signature (the redeem is deferred to the merchant fulfillment webhook). The checkout id comes from the spec-correct /ucp/v1/checkout-sessions/{id}/complete path form, or the legacy `checkout_id` body field. Public + activation-exempt; 404 until FACET_UCP_ENABLED. RFC 9421 ES256-signed (a Boson commit REQUIRES a verified platform signature). */
+        post: operations["ucpCheckoutComplete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ucp/v1/checkout-sessions/redeem": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Store the buyer's pre-signed Boson redeem for a committed exchange. The buyer cannot sign the redeem until the COMMIT assigns the exchange id, so the platform calls this AFTER the checkout completes; the held redeem is submitted on-chain later by the merchant fulfillment webhook (deferred-redeem policy). Stores only: it moves NO funds. Requires a verified RFC 9421 ES256 platform signature, the same as COMPLETE. Public + activation-exempt; 404 until FACET_UCP_ENABLED. */
+        post: operations["ucpSubmitRedeem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ucp/v1/checkout-sessions/refund": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Agent OPENS a refund ticket for a settled UCP checkout. The order is owned by the platform aid ucp:<keyid> (stamped at checkout), which the KYA-bearer /v1/refund_request cannot present, so this is the UCP sibling of that route. Opens the ticket ONLY and moves NO funds: the taxed amount is derived and capped server-side, and the send-back dispatches only when the merchant owner approves via POST /v1/refund_decide with a client-signed ERC-3009 authority from their own wallet (Facet holds no key). Requires a verified RFC 9421 ES256 platform signature (no unsigned fallback, unlike CREATE). Public + activation-exempt; 404 until FACET_UCP_ENABLED. */
+        post: operations["ucpRefund"];
         delete?: never;
         options?: never;
         head?: never;
@@ -89,6 +259,23 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/v1/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Public signed catalogue snapshot: facet.llc plans + licensable reads. Crawler-facing JSON; reads free. */
+        get: operations["getCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/catalog-manifest.yaml": {
         parameters: {
             query?: never;
@@ -98,26 +285,6 @@ export type paths = {
         };
         /** Per-merchant Facet catalog manifest (facet.yaml). Successor of /v1/schema. */
         get: operations["getCatalogManifest"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/schema": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Catalog manifest (facet.yaml). Deprecated — use /v1/catalog-manifest.yaml (RFC 8594 Sunset: 2026-08-23).
-         * @deprecated
-         */
-        get: operations["getSchema"];
         put?: never;
         post?: never;
         delete?: never;
@@ -874,7 +1041,24 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    "/v1/payments/dispatch": {
+    "/v1/promo/slots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Public mainnet-launch promo slot counter: sites claimed against the Tier 1 (any platform) and Tier 2 (WooCommerce) caps. Unauthenticated, rate-limited by origin, cacheable, and CORS-open so the counter can be embedded cross-origin. */
+        get: operations["getPromoSlots"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/discover": {
         parameters: {
             query?: never;
             header?: never;
@@ -883,8 +1067,8 @@ export type paths = {
         };
         get?: never;
         put?: never;
-        /** Dispatch a payment-rail op (verify_authority, capture, refund, dispute, …). */
-        post: operations["paymentsDispatch"];
+        /** Search the Universal Business Index for businesses/services (semantic + geo + edge filters); returns ranked listings each with the business's Terminal URL. */
+        post: operations["discover"];
         delete?: never;
         options?: never;
         head?: never;
@@ -942,278 +1126,6 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    "/v1/get_settlement": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Read one settlement-journal row by id (site operator, viewer+). */
-        post: operations["getSettlement"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/list_settlements": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** List a site's settlements with cursor pagination (site operator, viewer+). */
-        post: operations["listSettlements"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/settlements/reconcile": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Proactively settle Boson exchanges that RELEASED on-chain but whose webhook was lost/delayed (site operator, admin+). */
-        post: operations["reconcileSettlements"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/create_document": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Attach a document to one of the site's products (site operator, admin+). */
-        post: operations["createDocument"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/update_document": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Update a document's metadata (site operator, admin+). */
-        post: operations["updateDocument"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/delete_document": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Delete a document (site operator, admin+). */
-        post: operations["deleteDocument"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/list_document": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** List a site's documents with cursor pagination (site operator, viewer+). */
-        post: operations["listDocument"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/create_compliance": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Set a product's supplier-attested compliance override (site operator, admin+). */
-        post: operations["createCompliance"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/update_compliance": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Update a product's compliance override (site operator, admin+). */
-        post: operations["updateCompliance"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/delete_compliance": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Remove a product's compliance override, reverting to baseline (site operator, admin+). */
-        post: operations["deleteCompliance"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/list_compliance": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** List a site's compliance overrides with cursor pagination (site operator, viewer+). */
-        post: operations["listCompliance"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/stripe/onboarding_link": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Mint a Stripe Connect account onboarding URL for a site. */
-        post: operations["stripeOnboardingLink"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/stripe/balance": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Fetch the connected Stripe account's available + pending balance. */
-        post: operations["stripeBalance"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/stripe/checkout_session": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Mint a Stripe Checkout Session URL for a tier upgrade. */
-        post: operations["stripeCheckoutSession"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/stripe/webhook": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Stripe webhook receiver — vendor-frozen Event envelope in; Facet ack out. */
-        post: operations["stripeWebhook"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/boson/webhook": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Boson exchange-state webhook receiver — advances the escrow order binding. */
-        post: operations["bosonWebhook"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/boson/offer-metadata": {
         parameters: {
             query?: never;
@@ -1231,7 +1143,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    "/v1/shopify/webhook": {
+    "/v1/refund_escalate": {
         parameters: {
             query?: never;
             header?: never;
@@ -1240,15 +1152,15 @@ export type paths = {
         };
         get?: never;
         put?: never;
-        /** Shopify webhook receiver — HMAC-verified; advances orders on fulfillments/create. */
-        post: operations["shopifyWebhook"];
+        /** The disputing agent escalates its own rejected refund for Facet adjudication (money-inert). */
+        post: operations["refundEscalate"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/oms/push_order": {
+    "/v1/openescrow/buyer/cancel": {
         parameters: {
             query?: never;
             header?: never;
@@ -1257,42 +1169,8 @@ export type paths = {
         };
         get?: never;
         put?: never;
-        /** Internal — push a settled order to the merchant's OMS adapter. */
-        post: operations["omsPushOrder"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/oms/push_refund": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Internal — mirror an approved refund to the merchant's OMS adapter. */
-        post: operations["omsPushRefund"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/oms/drain": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Internal — drain the OMS push retry backlog (claims due orders, re-pushes each). */
-        post: operations["omsDrain"];
+        /** Agent (KYA): state-driven pre-ship cancel of the caller's own escrow for a full refund. */
+        post: operations["openEscrowBuyerCancel"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1656,23 +1534,6 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    "/v1/webhooks/calendly": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Calendly webhook receiver — vendor-frozen event in; Facet ack out. */
-        post: operations["calendlyWebhook"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/start": {
         parameters: {
             query?: never;
@@ -1867,6 +1728,13 @@ export type components = {
         };
         TermsResponse: {
             facet: string;
+            buyer_protection?: {
+                /** @enum {string} */
+                tier: "bonded";
+                bond_address: string;
+                network: string;
+                coverage_available: string;
+            };
             pricing: {
                 query_usdc: number;
                 transactional_usdc: number;
@@ -1974,6 +1842,12 @@ export type components = {
             product_id: string;
             qty?: number;
             qty_in_uom?: components["schemas"]["QuoteAmountInUom"];
+            /** @description Optional multi-line cart of DISTINCT product_ids (max 20). When present, the quote prices EVERY line server-side and returns one summed subtotal, one shipping, and tax on the summed goods; the scalar product_id names the first line for back-compat. Each entry carries its own qty OR qty_in_uom. */
+            line_items?: {
+                product_id: string;
+                qty?: number;
+                qty_in_uom?: components["schemas"]["QuoteAmountInUom"];
+            }[];
             exclude_allergens?: string[];
             fulfillment?: components["schemas"]["FulfillmentInput"];
         };
@@ -1983,6 +1857,8 @@ export type components = {
             qty: number;
             unit_price: number;
             subtotal: number;
+            /** @description The priced cart lines (product_id, qty, unit_price, subtotal). One element for a single-line quote; N for a multi-line cart. Every price is server-derived. */
+            line_items?: components["schemas"]["OrderLineItem"][];
             currency: string;
             /** @description ISO 8601. */
             expires_at: string;
@@ -2013,6 +1889,8 @@ export type components = {
             status: "reserved";
             expires_at: string;
             kya_charge_url: string | null;
+            /** @description Present ONLY on a stripe_deposit settlement-venue site: the per-order Stripe deposit address the agent pays the x402 (ERC-3009) to for this reservation, instead of the site's statically advertised pay_to. A per-order address cannot be advertised statically, so it rides here. Absent for a normal on-chain site (pay_to comes from discovery); optional and additive. */
+            pay_to?: string;
         };
         CancelReservationRequest: {
             reservation_id: string;
@@ -2294,6 +2172,13 @@ export type components = {
         CancelOrderResponse: components["schemas"]["Order"];
         /** @enum {string} */
         RefundStatus: "requested" | "approved" | "rejected" | "fulfilled";
+        /** @description One line of a partial-refund selection. The taxed amount is derived server-side from the merchant order at approval; the selection carries no amount and never names a destination. */
+        RefundLineItem: {
+            /** @description An ordered product_id to refund. */
+            product_id: string;
+            /** @description Units to refund; at most the ordered qty. */
+            qty: number;
+        };
         Refund: {
             refund_id: string;
             order_id: string;
@@ -2302,10 +2187,27 @@ export type components = {
             decision: string | null;
             created_at: string;
             resolved_at: string | null;
+            /** @description On-chain send-back tx hash once the refund is fulfilled; null until then. */
+            settlement_ref: string | null;
+            /** @description True when the agent presented a valid signed settlement receipt for the order. */
+            receipt_verified: boolean;
+            /** @description The partial-refund line selection, once set; null = a full-order refund. */
+            refund_line_items?: components["schemas"]["RefundLineItem"][] | null;
+            /** @description The derived partial amount in cents, once a partial is approved; null otherwise. */
+            amount_minor?: number | null;
         };
         RefundRequestRequest: {
             order_id: string;
             reason: string;
+            /** @description Optional PARTIAL selection: refund only these lines instead of the whole order. Advisory at request time (the merchant is authoritative and may adjust it at decide); server-validated against the order. Omitted = a full-order refund. */
+            refund_line_items?: components["schemas"]["RefundLineItem"][];
+            /** @description Optional Ed25519-signed settlement receipt (the signed settle response the agent received). When valid and bound to this order, sets receipt_verified on the ticket; it never gates the refund. */
+            receipt?: {
+                body: string;
+                signature: string;
+                trace_id: string;
+                path?: string;
+            };
         };
         RefundRequestResponse: components["schemas"]["Refund"];
         GetRefundRequest: {
@@ -2321,6 +2223,300 @@ export type components = {
             refunds: components["schemas"]["Refund"][];
             next_cursor: string | null;
         };
+        /** @description Internal: a merchant/owner approves or rejects an agent-opened refund ticket, or previews the amount (preview: true, no decision). `decision` is required unless preview is set. site_id is derived from the refunds row (looked up by refund_id) and gated via requireSiteRole admin (or, for the WooCommerce plugin relay, the per-site OMS signature); it is NOT taken from the body. Approving dispatches the on-chain send-back; the response is the updated Refund. */
+        RefundDecideRequest: {
+            refund_id: string;
+            /** @description Merchant verdict on the ticket: "approved" | "rejected". Required for a real decide; OMITTED for a preview (preview: true is a read-only dry run of an approval). */
+            decision?: string;
+            /** @description Dry run: when true, returns the server-derived { amount_minor, currency, refund_to, chain } for the caller to sign against, WITHOUT persisting or dispatching anything (the ticket stays 'requested'). A preview needs no `decision`. */
+            preview?: boolean;
+            /** @description Optional merchant note recorded with the decision. */
+            note?: string;
+            /** @description Optional PARTIAL selection the merchant confirms/adjusts on approve; it overrides the agent's advisory selection. Omitted keeps whatever the ticket carries. The taxed amount is derived server-side; the body carries no amount. */
+            refund_line_items?: components["schemas"]["RefundLineItem"][];
+            /** @description Optional NON-CUSTODIAL x402 refund on approve. The merchant signs the ERC-3009 reversal out of its OWN payTo and Facet only relays it (holds no key). Omitted falls back to a Facet-managed refund signer whose address equals payTo. The rail adapter binds the send-back's sender to the merchant payTo, its recipient to the buyer, and its value to the server-derived refund amount, and the facilitator re-verifies the signature before a cent moves. */
+            authority?: {
+                /** @description Base64 X-PAYMENT header carrying the merchant-signed ERC-3009 send-back (transferWithAuthorization out of the merchant payTo). */
+                x_payment: string;
+            };
+            /** @description Optional NON-CUSTODIAL x402 refund the merchant settled THEMSELVES. Use when the merchant's payTo is a smart CONTRACT wallet, which cannot produce the ERC-3009 signature `authority` carries (USDC recovers that with ecrecover, so it is EOA-only); the merchant instead broadcasts a plain USDC.transfer and posts the hash here. Facet neither signs nor relays: it VERIFIES the transaction on-chain (emitted by the network's USDC contract, sent from the merchant payTo, received by the buyer, for at least the server-derived amount, mined at or after the capture) and only then fulfils the ticket, recording the hash as settlement_ref. One transaction settles at most one ticket. Mutually exclusive with `authority`; supplying both is a 400. */
+            settlement?: {
+                /** @description 0x-prefixed 32-byte hash of the USDC transfer the merchant already broadcast from their own wallet. */
+                tx_hash: string;
+            };
+        };
+        /** @description Internal (OMS relay): the WooCommerce plugin lists PENDING (status 'requested') refund tickets for one order so the merchant can approve/reject from wp-admin. Authenticated by the per-site OMS signature (X-Facet-OMS-*), not a KYA bearer or session; every row is scoped to the signed site. */
+        RefundListPendingRequest: {
+            /** @description The Facet order id (UUID) to list pending refund tickets for. */
+            facet_order_id: string;
+        };
+        RefundListPendingResponse: {
+            /** @description Pending refund tickets for the order, newest first. */
+            refunds: {
+                refund_id: string;
+                order_id: string;
+                /** @description The agent's stated refund reason, if any. */
+                reason?: string | null;
+                /** @description Ticket status; always 'requested' for this list. */
+                status: string;
+                /** @description ISO-8601 timestamp the ticket was opened. */
+                created_at: string;
+            }[];
+        };
+        /** @description Internal (OMS relay): everything a merchant's storefront plugin needs to settle a refund it is about to create itself, BEFORE any Facet ticket exists. A native WooCommerce refund originates in wp-admin, so there is no refund_id to preview at the moment the merchant's wallet must sign or broadcast. Authenticated by the per-site OMS signature (X-Facet-OMS-*), not a KYA bearer or session; scoped to the signed site. */
+        RefundContextRequest: {
+            /** @description The Facet order id (UUID) the merchant is about to refund. */
+            facet_order_id: string;
+        };
+        RefundContextResponse: {
+            order_id: string;
+            /** @description The buyer wallet the refund must go to, captured at settle. Server-derived, never accepted from the caller. null when the order has no captured buyer wallet, in which case no x402 refund can be targeted. */
+            refund_to?: string | null;
+            /** @description The wallet the refund must come OUT of, on the current plane. The plugin checks the connected wallet against it before a broadcast spends real USDC, and uses it to tell an EOA (signs an ERC-3009 for Facet to relay) from a contract wallet (must broadcast a transfer itself, because USDC recovers ERC-3009 with ecrecover). */
+            pay_to: string | null;
+            /** @description USDC chain slug: 'base' or 'base-sepolia'. */
+            chain: string | null;
+            /** @description True when Facet holds a managed signer for pay_to, so a merchant-initiated refund settles server-side and the storefront must NOT prompt for a wallet. False means the payout wallet is the merchant's own and only they can move it. */
+            facet_can_sign: boolean;
+            currency: string;
+            /** @description The order's captured total, in cents. */
+            captured_minor: number;
+            /** @description Cents still refundable: captured minus everything already claimed on the shared ledger. ADVISORY pre-flight so the plugin can refuse before a merchant broadcasts USDC that could never be recorded; the authoritative over-refund cap is still the claim RPC at webhook time. */
+            refundable_minor: number;
+        };
+        /** @description Internal: owner-only setter for the site's refund auto-approve window (sites.refund_auto_approve_window_hours). Gated via requireSiteRole owner on the body site_id. */
+        RefundPolicyRequest: {
+            site_id: string;
+            /** @description Auto-approve window in hours (max 8760). null or 0 disables auto-approval; a positive value auto-approves settled, un-fulfilled refunds requested within it. */
+            window_hours?: number | null;
+            /** @description Optional reputation floor (max 1000), AND-ed with the window. null or 0 disables it; a positive value only auto-approves when the requesting agent's derived reputation score is at or above it, and never for an unknown agent. */
+            min_reputation?: number | null;
+        };
+        RefundPolicyResponse: {
+            site_id: string;
+            /** @description The site's current auto-approve window in hours; null when disabled. */
+            refund_auto_approve_window_hours: number | null;
+            /** @description The site's current auto-approve reputation floor (0 to 1000); null when disabled. */
+            refund_auto_approve_min_reputation: number | null;
+        };
+        /** @description The disputing agent escalates its own REJECTED refund ticket for Facet adjudication. KYA-authed and bound to the ticket's own agent_aid. Money-inert. */
+        RefundEscalateRequest: {
+            refund_id: string;
+            /** @description Optional additional context from the agent; advisory. */
+            note?: string | null;
+        };
+        RefundEscalateResponse: {
+            refund_id: string;
+            /** @description The ticket status after escalation ('escalated'). */
+            status: string;
+        };
+        /** @description Internal: a neutral Facet operator rules on an ESCALATED dispute. Operator-authed (a shared adjudicator secret), NEITHER the merchant NOR the agent. Money-inert. */
+        RefundAdjudicateRequest: {
+            refund_id: string;
+            /** @description 'uphold_buyer' or 'uphold_merchant'. */
+            ruling: string;
+            /** @description Optional operator rationale (max 2000 chars). */
+            rationale?: string | null;
+        };
+        DisputeRuling: {
+            refund_id: string;
+            order_id: string;
+            /** @description 'uphold_buyer' or 'uphold_merchant'. */
+            ruling: string;
+            rationale?: string | null;
+            /** @description keccak256 of the canonical reconstructed evidence bundle. */
+            evidence_hash: string;
+            arbiter_id: string;
+            /** @description The canonical body that was Ed25519-signed. */
+            ruling_body: string;
+            /** @description The Facet response signature over ruling_body, verifiable against the published JWKS. */
+            signature: string;
+            kid: string;
+            /** @description The trace id bound into the signed canonical string; required to reconstruct and verify the signature (method POST, path /v1/refund_adjudicate, this trace_id, sha256(ruling_body)). */
+            trace_id: string;
+            created_at: string;
+        };
+        OpenEscrowCall: {
+            /** @description OpenEscrow contract address to send the transaction to. */
+            to: string;
+            /** @description ABI-encoded calldata (0x hex). */
+            data: string;
+            /** @description Native value; always the literal string "0x0". */
+            value: string;
+            /** @description EVM chain id the caller must broadcast on. */
+            chainId: number;
+        };
+        OpenEscrowDispute: {
+            /** @description 32-byte 0x escrow id (settlement id). */
+            escrowId: string;
+            siteId: string | null;
+            /** @description Always null in the overview (not enriched). */
+            siteHandle: string | null;
+            orderId: string | null;
+            /** @description Stored on-chain payer (buyer) address. */
+            payer: string;
+            /** @description Stored on-chain merchant address. */
+            merchant: string;
+            /** @description Escrow amount in USD cents. */
+            amountMinor: number;
+            /** @description Always null (not read from the snapshot). */
+            disputedAmountMinor: number | null;
+            /** @description Always null in the overview. */
+            evidenceHash: string | null;
+            /** @description ISO 8601 dispute-opened timestamp, or null. */
+            disputeOpenedAt: string | null;
+            /** @description ISO 8601 dispute deadline, or null. */
+            disputeDeadline: string | null;
+            /** @description EVM chain id of the OpenEscrow contract. */
+            chainId: number;
+            /** @description OpenEscrow contract address. */
+            escrowContract: string;
+        };
+        OpenEscrowOpsOverviewResponse: {
+            /** @enum {string} */
+            _status: "live";
+            /** @description ISO 8601 timestamp the census was generated. */
+            generatedAt: string;
+            /** @description EVM chain id; null when the rail is unconfigured. */
+            chainId: number | null;
+            /** @description OpenEscrow contract address; null when unconfigured. */
+            escrowContract: string | null;
+            arbiter: {
+                /** @description Arbiter signer address; null when unconfigured. */
+                address: string | null;
+                configured: boolean;
+            };
+            solvency: {
+                /** @description Sum of funded + disputed escrow amounts, in USD cents. */
+                totalEscrowedMinor: number;
+                /** @description Always 0 (reserved). */
+                totalWithdrawableMinor: number;
+                /** @description On-chain contract balance in cents; always null (not read). */
+                contractBalanceMinor: number | null;
+            };
+            counts: {
+                total: number;
+                funded: number;
+                disputed: number;
+                released: number;
+                resolved: number;
+                refunded: number;
+                expired: number;
+            };
+            disputes: components["schemas"]["OpenEscrowDispute"][];
+        };
+        /** @description Internal (Facet operator): authorize a split of ONE Disputed OpenEscrow escrow. The arbiter binds the STORED on-chain payer/merchant (never a caller field) and caps the refund at the escrow amount. Facet signs only; it broadcasts nothing. */
+        OpenEscrowArbiterAuthorizeRequest: {
+            /** @description 32-byte 0x hex escrow id of the disputed escrow to split. */
+            escrowId: string;
+            /** @description Refund amount in USD cents (positive integer). Scaled x10000 to USDC base units and capped at the on-chain escrow amount. */
+            refundAmountMinor: number;
+            /** @description Optional 32-byte 0x hex evidence hash; defaults to keccak256('') when omitted. */
+            evidenceHash?: string;
+        };
+        OpenEscrowArbiterAuthorizeResponse: {
+            /** @enum {string} */
+            _status: "live";
+            authorization: {
+                escrowId: string;
+                /** @description Capped refund in USD cents. */
+                refundAmountMinor: number;
+                /** @description Capped refund in USDC base units (6dp), decimal string. */
+                refundAmountBaseUnits: string;
+                evidenceHash: string;
+                /** @description Single-use nonce, decimal string. */
+                nonce: string;
+                /** @description Unix deadline seconds, decimal string. */
+                deadline: string;
+                arbiterAddress: string;
+                /** @description EIP-712 RefundAuthorization signature. */
+                arbiterSig: string;
+                resolveDisputeCall: components["schemas"]["OpenEscrowCall"];
+            };
+        };
+        /** @description Agent (Facet KYA bearer): the stored on-chain buyer cancels a not-yet-shipped escrow for a FULL refund, in two self-broadcast phases. Non-custodial: Facet signs only the refund-authorization and broadcasts nothing. */
+        OpenEscrowBuyerCancelRequest: {
+            /** @description 32-byte 0x hex escrow id to cancel; must belong to the authenticated agent. */
+            escrowId: string;
+            /** @description Optional free-text reason; keccak256-hashed into the evidence hash. Any body-supplied amount is ignored; the refund is the full server-derived snapshot amount. */
+            reason?: string;
+        };
+        OpenEscrowBuyerCancelOpenDispute: {
+            /** @enum {string} */
+            _status: "live";
+            /** @enum {string} */
+            phase: "open_dispute";
+            escrowId: string;
+            /** @description Full escrow amount in USDC base units, decimal string. */
+            disputedAmountBaseUnits: string;
+            evidenceHash: string;
+            /** @description ISO 8601 on-chain dispute deadline, or null. */
+            dispute_deadline: string | null;
+            open_dispute_calldata: components["schemas"]["OpenEscrowCall"];
+            /** @description Guidance to self-broadcast openDispute, then re-call once mined. */
+            note: string;
+        };
+        OpenEscrowBuyerCancelResolveDispute: {
+            /** @enum {string} */
+            _status: "live";
+            /** @enum {string} */
+            phase: "resolve_dispute";
+            escrowId: string;
+            /** @description Full refund in USDC base units, decimal string. */
+            refundAmountBaseUnits: string;
+            evidenceHash: string;
+            /** @description Single-use nonce, decimal string. */
+            nonce: string;
+            /** @description Unix deadline seconds, decimal string. */
+            deadline: string;
+            arbiterAddress: string;
+            /** @description EIP-712 RefundAuthorization signature. */
+            arbiterSig: string;
+            resolve_dispute_calldata: components["schemas"]["OpenEscrowCall"];
+        };
+        OpenEscrowBuyerCancelAlreadyRefunded: {
+            /** @enum {string} */
+            _status: "live";
+            /** @enum {string} */
+            phase: "already_refunded";
+            escrowId: string;
+        };
+        /** @description Discriminated by `phase`: Funded->open_dispute, Disputed->resolve_dispute, Refunded->already_refunded. */
+        OpenEscrowBuyerCancelResponse: components["schemas"]["OpenEscrowBuyerCancelOpenDispute"] | components["schemas"]["OpenEscrowBuyerCancelResolveDispute"] | components["schemas"]["OpenEscrowBuyerCancelAlreadyRefunded"];
+        /** @description Internal (site admin): revoke a Funded escrow and fully refund the buyer on-chain in one action. The merchant chooses neither amount nor recipient, only which Funded escrow to revoke. Non-custodial: server-derived full refund via the arbiter + gas-only relayer. */
+        OpenEscrowSellerRevokeRequest: {
+            /** @description 32-byte 0x hex escrow id of the Funded escrow to revoke. site_id is read from the mirror row, never the body. */
+            escrowId: string;
+        };
+        OpenEscrowSellerRevokeRefunded: {
+            /** @enum {string} */
+            _status: "live";
+            revoke: {
+                escrowId: string;
+                /** @enum {string} */
+                status: "refunded";
+                /** @description Full refund in USD cents. */
+                refundAmountMinor: number;
+                /** @description Full refund in USDC base units, decimal string. */
+                refundAmountBaseUnits: string;
+                /** @description openDispute tx hash; present only when the relayer broadcast it. */
+                openTx?: string;
+                /** @description resolveDispute tx hash; present only when broadcast. */
+                resolveTx?: string;
+                arbiterAddress: string;
+            };
+        };
+        OpenEscrowSellerRevokeAlreadyRefunded: {
+            /** @enum {string} */
+            _status: "live";
+            revoke: {
+                escrowId: string;
+                /** @enum {string} */
+                status: "already_refunded";
+            };
+        };
+        /** @description Discriminated by revoke.status: refunded | already_refunded. */
+        OpenEscrowSellerRevokeResponse: components["schemas"]["OpenEscrowSellerRevokeRefunded"] | components["schemas"]["OpenEscrowSellerRevokeAlreadyRefunded"];
         License: {
             license_id: string;
             scope: string;
@@ -2475,6 +2671,69 @@ export type components = {
             first_seen_at: string | null;
             last_seen_at: string | null;
         };
+        DiscoverRequest: {
+            /** @description NL / keyword search over name (+ facet_taxonomy text match). */
+            query?: string;
+            /** @description Geo search center; pairs with radius_km. */
+            near?: {
+                lat: number;
+                lng: number;
+            };
+            /** @description Search radius in km (applied only when `near` is given). */
+            radius_km?: number;
+            /** @description Match universal_business_index.naics = ANY. */
+            naics?: number[];
+            /** @description facet_taxonomy overlap (&&) filter. */
+            taxonomy?: string[];
+            /** @description Capability tags; folded into the facet_taxonomy overlap filter. */
+            capabilities?: string[];
+            /** @description One-hop knowledge-graph relationship filter. */
+            edge?: {
+                /** @description A ubi_id; return businesses one kg_edges hop away. */
+                connected_to: string;
+                /** @description Optional kg_edges.relation filter for the edge hop. */
+                relation?: string;
+            };
+            /** @description Min mv_ubi_facet_score.avg_score. */
+            min_reputation?: number;
+            /** @description Only return businesses with a claimed site. */
+            claimed_only?: boolean;
+            /** @description Page size (default 20, capped server-side at 50). */
+            limit?: number;
+            /** @description Page offset (default 0). */
+            offset?: number;
+        };
+        DiscoverResult: {
+            ubi_id: string;
+            name: string;
+            /** @description Formatted single-line address from address_jsonb. */
+            address: string | null;
+            lat: number | null;
+            lng: number | null;
+            /** @description Distance from the search center; null with no geo center. */
+            distance_m: number | null;
+            naics: number | null;
+            /** @description facet_taxonomy tags. */
+            taxonomy: string[];
+            claim_status: string;
+            reputation: {
+                avg_score: number | null;
+                total_interactions: number;
+            };
+            /** @description CLAIMED + live → https://<domain|terminal.facet.llc>/v1; CLAIMED + pre-live → https://<handle>.sandbox.facet.llc/v1; UNCLAIMED → null. */
+            terminal_url: string | null;
+            capabilities: string[] | null;
+            handoff: {
+                phone: string | null;
+                /** @description https://www.google.com/maps/dir/?api=1&destination=<lat>,<lng>. */
+                directions_url: string | null;
+            };
+        };
+        DiscoverResponse: {
+            results: components["schemas"]["DiscoverResult"][];
+            total_estimate: number;
+            next_offset: number | null;
+        };
         FacetPublicKey: {
             kid: string;
             /** @enum {string} */
@@ -2542,6 +2801,18 @@ export type components = {
         MsIdentityAssociationResponse: {
             associatedApplications: components["schemas"]["MsIdentityAssociatedApplication"][];
         };
+        PromoSlotsResponse: {
+            /** @description Sites claimed under Tier 1 (any platform, free Pro + 0% Facet fee, 12 months). */
+            tier1_claimed: number;
+            /** @description Tier 1 cap. */
+            tier1_cap: number;
+            /** @description Sites claimed under Tier 2 (WooCommerce, 0% Facet fee, 12 months). */
+            tier2_claimed: number;
+            /** @description Tier 2 cap. */
+            tier2_cap: number;
+            /** @description False when the counts are placeholder zeros (no database configured). */
+            live: boolean;
+        };
         /** @description OpenAPI 3.1 document. Shape is defined by the OpenAPI 3.1 schema; this stub lists the top-level fields a Facet Terminal emits and opts into additionalProperties so per-merchant overlays + future spec extensions parse cleanly. SDK generators should treat the response body as a self-describing OpenAPI 3.1 document. */
         OpenApiDocument: {
             /** @description OpenAPI specification version (e.g. '3.1.0'). */
@@ -2561,6 +2832,105 @@ export type components = {
             components?: {
                 [key: string]: unknown;
             };
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description A JSON-RPC 2.0 request for the UCP MCP catalog endpoint (POST /ucp/mcp). The dev.ucp.shopping tool schemas (search_catalog, lookup_catalog, get_product) are defined by the UCP MCP service schema referenced in the /.well-known/ucp profile. */
+        UcpMcpRequest: {
+            /**
+             * @description JSON-RPC version, always "2.0".
+             * @enum {string}
+             */
+            jsonrpc: "2.0";
+            /** @description Request id (string or number); absent for notifications. */
+            id?: unknown;
+            /** @description MCP method, e.g. initialize, tools/list, tools/call. */
+            method: string;
+            /** @description Method params (e.g. { name, arguments } for tools/call). */
+            params?: unknown;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description A JSON-RPC 2.0 response from the UCP MCP catalog endpoint (POST /ucp/mcp). Carries `result` on success or `error` on a protocol failure. */
+        UcpMcpResponse: {
+            /**
+             * @description JSON-RPC version, always "2.0".
+             * @enum {string}
+             */
+            jsonrpc?: "2.0";
+            /** @description Echoes the request id; null for a parse error. */
+            id?: unknown;
+            /** @description Present on success. tools/list -> { tools }; tools/call -> { content, structuredContent } (a tool failure is result.isError = true). */
+            result?: unknown;
+            /** @description Present instead of result on a JSON-RPC protocol error. */
+            error?: {
+                code: number;
+                message: string;
+            } & {
+                [key: string]: unknown;
+            };
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description A UCP checkout create request (POST /ucp/v1/checkout-sessions). v1 reserves a cart of server-priced DISTINCT line items and advertises the llc.facet.x402 payment requirements. Every price is resolved from this merchant's catalog, never the request body. */
+        UcpCheckoutCreateRequest: {
+            /** @description The UCP line items: [{ item: { id }, quantity }]. v1 supports a cart of DISTINCT product_ids (up to 20 lines); each SKU may appear at most once, and every price is server-derived from the catalog. */
+            line_items: unknown;
+            /** @description Optional UCP fulfillment. When it carries a shipping method with a destination (methods[].type=shipping, destinations[], selected_destination_id when several), the destination is vaulted and the session is priced LANDED: goods plus shipping plus tax. Omit it for a goods-only checkout. This is the ONLY point a destination is accepted: complete carries none, so the amount the buyer authorizes always matches what ships. */
+            fulfillment?: unknown;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description A UCP checkout session. The llc.facet.x402 handler carries the SERVER-resolved pay_to and amount the platform must satisfy; both come from the reservation + the merchant's sites row, never the request. */
+        UcpCheckoutCreateResponse: {
+            /** @description The checkout session id (the Terminal reservation id). */
+            id?: string;
+            /** @description Checkout status, e.g. "ready_for_complete". */
+            status?: string;
+            /** @description ISO 4217 currency of the priced line item. */
+            currency?: string;
+            /** @description Server-resolved payment requirements keyed by handler id (llc.facet.x402): network, USDC asset, pay_to, and the server-derived amount. */
+            payment_handlers?: unknown;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description A UCP checkout complete request (POST /ucp/v1/checkout-sessions/complete, or the spec-correct /{id}/complete). Bridges the buyer's credential to the Terminal dispatcher authority. x402 captures; a boson_commit_authorization COMMITS the escrow with the buyer's own x402B signature (funds escrow into the Diamond) and the redeem is deferred to the merchant fulfillment webhook. Money movement reuses the non-custodial settle path: the amount is re-derived server-side from the reservation and the rail adapter re-verifies the signature, seller, escrow, asset and amount before a cent moves. */
+        UcpCheckoutCompleteRequest: {
+            /** @description The checkout session id to complete (the reservation id). OPTIONAL when the spec-correct /ucp/v1/checkout-sessions/{id}/complete path form is used (the id is taken from the path); required on the legacy body form. */
+            checkout_id?: string;
+            /** @description The selected payment payload. The instruments array holds one entry whose credential is either type x402_authorization with a token (the buyer signed x402 credential), or type boson_commit_authorization with x_payment (the buyer's x402B COMMIT authorization) plus requirements (the seller-signed offer echoed from CREATE). */
+            payment: unknown;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description Store the buyer's pre-signed Boson redeem for a committed exchange (POST /ucp/v1/checkout-sessions/redeem). The buyer cannot sign the redeem until the COMMIT assigns the exchange id, so this is a distinct call the platform makes AFTER the checkout completes. Stores only; it moves no funds. */
+        UcpSubmitRedeemRequest: {
+            /** @description The committed on-chain Boson exchange id the redeem releases. */
+            exchange_id: string;
+            /** @description The buyer's signed boson-redeem meta-transaction. Held until the merchant marks the order fulfilled, then submitted by the fulfillment webhook. */
+            signed_payload: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description Acknowledges that the buyer's redeem is held for the deferred fire. The redeem is submitted on-chain later, when the merchant fulfillment webhook arrives. */
+        UcpSubmitRedeemResponse: {
+            /** @description Storage status, e.g. "redeem_stored". */
+            status?: string;
+            /** @description The exchange the stored redeem belongs to. */
+            exchange_id?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description A UCP checkout completion mapped from a settled Terminal order. settlement_id is the on-chain capture id; the funds moved straight to the merchant's pay_to (non-custodial). */
+        UcpCheckoutCompleteResponse: {
+            /** @description Completion status, e.g. "completed". */
+            status?: string;
+            /** @description The settled order: { id, permalink_url }. */
+            order?: unknown;
+            /** @description The rail-native settlement id (x402 on-chain tx hash). */
+            settlement_id?: string;
+            /** @description ISO 8601 settlement timestamp, when available. */
+            settled_at?: string;
         } & {
             [key: string]: unknown;
         };
@@ -2754,7 +3124,7 @@ export type components = {
         PaymentsQuoteRequest: {
             /** @description Merchant site UUID the agent is buying from. */
             site_id: string;
-            /** @description Payment rail id (default coin/boson-escrow). */
+            /** @description Payment rail id (default coin/usdc-base; coin/usdc-base-sepolia on the sandbox plane). */
             rail_id?: string;
             amount: {
                 /** @description Atomic units (USDC = 6 decimals). */
@@ -2939,6 +3309,19 @@ export type components = {
             /** @description Mapped WebhookOutcome kind (settlement_confirmed|ignored…). */
             outcome: string;
         };
+        /** @description Vendor-frozen Persona webhook body (JSON:API envelope). The event name is at data.attributes.name and the affected resource at data.attributes.payload.data; attribute keys are kebab-case (reference-id). Shape is owned by Persona; the receiver verifies the Persona-Signature HMAC before consuming. */
+        PersonaWebhookEvent: {
+            [key: string]: unknown;
+        };
+        PersonaWebhookAck: {
+            received: boolean;
+            /** @description Why an authentic event was not acted on (unhandled_event|unmapped_status…). */
+            ignored?: string;
+            /** @description Site resolved from the transaction's reference-id. */
+            site_id?: string;
+            /** @description kyb_status written (verified|pending|rejected). */
+            kyb_status?: string;
+        };
         /** @description Vendor-frozen Shopify webhook body (e.g. fulfillments/create). Shape is owned by Shopify and treated as a black box — the Terminal verifies the X-Shopify-Hmac-Sha256 signature + dispatches on X-Shopify-Topic before consuming. */
         ShopifyWebhookEvent: {
             [key: string]: unknown;
@@ -2946,6 +3329,15 @@ export type components = {
         ShopifyWebhookAck: {
             received: boolean;
             /** @description The X-Shopify-Topic that was processed (or null). */
+            topic: string | null;
+        };
+        /** @description Vendor-frozen WooCommerce webhook body (e.g. order.updated / product.updated). Shape is owned by WooCommerce and treated as a black box — the Terminal verifies the X-WC-Webhook-Signature (base64 HMAC-SHA256 over the raw body, against the PER-SITE webhook secret resolved from X-WC-Webhook-Source) + dispatches on X-WC-Webhook-Topic before consuming. */
+        WooCommerceWebhookEvent: {
+            [key: string]: unknown;
+        };
+        WooCommerceWebhookAck: {
+            received: boolean;
+            /** @description The X-WC-Webhook-Topic that was processed (or null). */
             topic: string | null;
         };
         AdapterSlot: {
@@ -3457,42 +3849,6 @@ export interface operations {
             500: components["responses"]["FacetError"];
         };
     };
-    getMsIdentityAssociation: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Success. */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MsIdentityAssociationResponse"];
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
     getAgentsTxt: {
         parameters: {
             query?: never;
@@ -3519,6 +3875,422 @@ export interface operations {
                 };
                 content: {
                     "text/plain": string;
+                };
+            };
+            400: components["responses"]["FacetError"];
+            401: components["responses"]["FacetError"];
+            403: components["responses"]["FacetError"];
+            404: components["responses"]["FacetError"];
+            429: components["responses"]["FacetRateLimited"];
+            500: components["responses"]["FacetError"];
+        };
+    };
+    getUcpProfile: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-host UCP (Universal Commerce Protocol) business profile (RFC 8615). Advertises this merchant's UCP service endpoints, the llc.facet.x402 + llc.facet.boson_escrow payment handlers, and the ES256 signing keys. Returns 404 until the operator enables UCP via FACET_UCP_ENABLED. (application/json). */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+            400: components["responses"]["FacetError"];
+            401: components["responses"]["FacetError"];
+            403: components["responses"]["FacetError"];
+            404: components["responses"]["FacetError"];
+            429: components["responses"]["FacetRateLimited"];
+            500: components["responses"]["FacetError"];
+        };
+    };
+    getOauthProtectedResource: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OAuth 2.0 Protected Resource Metadata (RFC 9728) for this host's MCP endpoint. Names the canonical resource URI (<host>/ucp/mcp), the trusted authorization servers that may mint tokens for it, and the supported scopes, so a stock MCP client can start an OAuth flow from the 401 challenge. KYA remains a fully sufficient credential; this path is additive. Returns 404 until the operator enables UCP via FACET_UCP_ENABLED. (application/json). */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+            400: components["responses"]["FacetError"];
+            401: components["responses"]["FacetError"];
+            403: components["responses"]["FacetError"];
+            404: components["responses"]["FacetError"];
+            429: components["responses"]["FacetRateLimited"];
+            500: components["responses"]["FacetError"];
+        };
+    };
+    getLlmsTxt: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-host curated discovery index for LLMs and agents that land on this Terminal directly, before ever making a tool call. Points at agents.txt, capabilities, terms, and the OpenAPI spec rather than duplicating them. (text/plain). */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            400: components["responses"]["FacetError"];
+            401: components["responses"]["FacetError"];
+            403: components["responses"]["FacetError"];
+            404: components["responses"]["FacetError"];
+            429: components["responses"]["FacetRateLimited"];
+            500: components["responses"]["FacetError"];
+        };
+    };
+    getRobotsTxt: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-host crawler policy. A Facet Terminal is an API surface for agents, not a set of crawlable pages, so this allows all crawlers and points them at agents.txt as the real discovery entry point. (text/plain). */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            400: components["responses"]["FacetError"];
+            401: components["responses"]["FacetError"];
+            403: components["responses"]["FacetError"];
+            404: components["responses"]["FacetError"];
+            429: components["responses"]["FacetRateLimited"];
+            500: components["responses"]["FacetError"];
+        };
+    };
+    getIntegrationsJson: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-host summary of which OMS is connected, which settlement rails are live (read from the live PaymentDispatcher registry, never a static list), and which webhook events this site can emit. (application/json). */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+            400: components["responses"]["FacetError"];
+            401: components["responses"]["FacetError"];
+            403: components["responses"]["FacetError"];
+            404: components["responses"]["FacetError"];
+            429: components["responses"]["FacetRateLimited"];
+            500: components["responses"]["FacetError"];
+        };
+    };
+    getBrandJson: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-host logo and brand colors, once the merchant has set them. Returns 404 until they do, mirroring the Microsoft-identity-association gate. (application/json). */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+            400: components["responses"]["FacetError"];
+            401: components["responses"]["FacetError"];
+            403: components["responses"]["FacetError"];
+            404: components["responses"]["FacetError"];
+            429: components["responses"]["FacetRateLimited"];
+            500: components["responses"]["FacetError"];
+        };
+    };
+    ucpMcp: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UcpMcpRequest"];
+            };
+        };
+        responses: {
+            /** @description Success. */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UcpMcpResponse"];
+                };
+            };
+            400: components["responses"]["FacetError"];
+            401: components["responses"]["FacetError"];
+            403: components["responses"]["FacetError"];
+            404: components["responses"]["FacetError"];
+            429: components["responses"]["FacetRateLimited"];
+            500: components["responses"]["FacetError"];
+        };
+    };
+    ucpCheckoutCreate: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UcpCheckoutCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Success. */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UcpCheckoutCreateResponse"];
+                };
+            };
+            400: components["responses"]["FacetError"];
+            401: components["responses"]["FacetError"];
+            403: components["responses"]["FacetError"];
+            404: components["responses"]["FacetError"];
+            429: components["responses"]["FacetRateLimited"];
+            500: components["responses"]["FacetError"];
+        };
+    };
+    ucpCheckoutComplete: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UcpCheckoutCompleteRequest"];
+            };
+        };
+        responses: {
+            /** @description Success. */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UcpCheckoutCompleteResponse"];
+                };
+            };
+            400: components["responses"]["FacetError"];
+            401: components["responses"]["FacetError"];
+            403: components["responses"]["FacetError"];
+            404: components["responses"]["FacetError"];
+            429: components["responses"]["FacetRateLimited"];
+            500: components["responses"]["FacetError"];
+        };
+    };
+    ucpSubmitRedeem: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UcpSubmitRedeemRequest"];
+            };
+        };
+        responses: {
+            /** @description Success. */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UcpSubmitRedeemResponse"];
+                };
+            };
+            400: components["responses"]["FacetError"];
+            401: components["responses"]["FacetError"];
+            403: components["responses"]["FacetError"];
+            404: components["responses"]["FacetError"];
+            429: components["responses"]["FacetRateLimited"];
+            500: components["responses"]["FacetError"];
+        };
+    };
+    ucpRefund: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RefundRequestRequest"];
+            };
+        };
+        responses: {
+            /** @description Success. */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RefundRequestResponse"];
                 };
             };
             400: components["responses"]["FacetError"];
@@ -3601,6 +4373,42 @@ export interface operations {
             500: components["responses"]["FacetError"];
         };
     };
+    getCatalog: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public signed catalogue snapshot: facet.llc plans + licensable reads. Crawler-facing JSON; reads free. (application/json). */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+            400: components["responses"]["FacetError"];
+            401: components["responses"]["FacetError"];
+            403: components["responses"]["FacetError"];
+            404: components["responses"]["FacetError"];
+            429: components["responses"]["FacetRateLimited"];
+            500: components["responses"]["FacetError"];
+        };
+    };
     getCatalogManifest: {
         parameters: {
             query?: never;
@@ -3623,44 +4431,6 @@ export interface operations {
                     "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
                     "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
                     "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/yaml": string;
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
-    getSchema: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Catalog manifest (facet.yaml). Deprecated — use /v1/catalog-manifest.yaml (RFC 8594 Sunset: 2026-08-23). (text/yaml). */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    Sunset: components["headers"]["Sunset"];
-                    Link: components["headers"]["Link"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5424,7 +6194,7 @@ export interface operations {
             500: components["responses"]["FacetError"];
         };
     };
-    paymentsDispatch: {
+    getPromoSlots: {
         parameters: {
             query?: never;
             header?: {
@@ -5432,15 +6202,49 @@ export interface operations {
                 Accept?: components["parameters"]["AcceptVersion"];
                 /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
                 "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-                /** @description Optional idempotency key. Mutating routes (settle, purchase_license, payments/dispatch, …) SHOULD set this so retries collapse to the same downstream effect. */
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success. */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromoSlotsResponse"];
+                };
+            };
+            400: components["responses"]["FacetError"];
+            401: components["responses"]["FacetError"];
+            403: components["responses"]["FacetError"];
+            404: components["responses"]["FacetError"];
+            429: components["responses"]["FacetRateLimited"];
+            500: components["responses"]["FacetError"];
+        };
+    };
+    discover: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
             };
             path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PaymentsDispatchRequest"];
+                "application/json": components["schemas"]["DiscoverRequest"];
             };
         };
         responses: {
@@ -5455,7 +6259,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PaymentsDispatchResponse"];
+                    "application/json": components["schemas"]["DiscoverResponse"];
                 };
             };
             400: components["responses"]["FacetError"];
@@ -5582,646 +6386,6 @@ export interface operations {
             500: components["responses"]["FacetError"];
         };
     };
-    getSettlement: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["GetSettlementRequest"];
-            };
-        };
-        responses: {
-            /** @description Success. */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GetSettlementResponse"];
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
-    listSettlements: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ListSettlementsRequest"];
-            };
-        };
-        responses: {
-            /** @description Success. */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ListSettlementsResponse"];
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
-    reconcileSettlements: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReconcileSettlementsRequest"];
-            };
-        };
-        responses: {
-            /** @description Success. */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReconcileSettlementsResponse"];
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
-    createDocument: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateDocumentRequest"];
-            };
-        };
-        responses: {
-            /** @description Success. */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CreateDocumentResponse"];
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
-    updateDocument: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateDocumentRequest"];
-            };
-        };
-        responses: {
-            /** @description Success. */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UpdateDocumentResponse"];
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
-    deleteDocument: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DeleteDocumentRequest"];
-            };
-        };
-        responses: {
-            /** @description Success. */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeleteDocumentResponse"];
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
-    listDocument: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ListDocumentRequest"];
-            };
-        };
-        responses: {
-            /** @description Success. */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ListDocumentResponse"];
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
-    createCompliance: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateComplianceRequest"];
-            };
-        };
-        responses: {
-            /** @description Success. */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CreateComplianceResponse"];
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
-    updateCompliance: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateComplianceRequest"];
-            };
-        };
-        responses: {
-            /** @description Success. */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UpdateComplianceResponse"];
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
-    deleteCompliance: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DeleteComplianceRequest"];
-            };
-        };
-        responses: {
-            /** @description Success. */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeleteComplianceResponse"];
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
-    listCompliance: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ListComplianceRequest"];
-            };
-        };
-        responses: {
-            /** @description Success. */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ListComplianceResponse"];
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
-    stripeOnboardingLink: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StripeOnboardingLinkRequest"];
-            };
-        };
-        responses: {
-            /** @description Success. */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["StripeOnboardingLinkResponse"];
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
-    stripeBalance: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StripeBalanceRequest"];
-            };
-        };
-        responses: {
-            /** @description Success. */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["StripeBalanceResponse"];
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
-    stripeCheckoutSession: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StripeCheckoutSessionRequest"];
-            };
-        };
-        responses: {
-            /** @description Success. */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["StripeCheckoutSessionResponse"];
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
-    stripeWebhook: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["StripeWebhookEvent"];
-            };
-        };
-        responses: {
-            /** @description Success. */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["StripeWebhookAck"];
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
-    bosonWebhook: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["BosonWebhookEvent"];
-            };
-        };
-        responses: {
-            /** @description Success. */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BosonWebhookAck"];
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
     bosonOfferMetadata: {
         parameters: {
             query: {
@@ -6254,89 +6418,7 @@ export interface operations {
             };
         };
     };
-    shopifyWebhook: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["ShopifyWebhookEvent"];
-            };
-        };
-        responses: {
-            /** @description Success. */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ShopifyWebhookAck"];
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
-    omsPushOrder: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-                /** @description Optional idempotency key. Mutating routes (settle, purchase_license, payments/dispatch, …) SHOULD set this so retries collapse to the same downstream effect. */
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["OmsPushOrderRequest"];
-            };
-        };
-        responses: {
-            /** @description Success. */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OmsPushOrderResponse"];
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
-    omsPushRefund: {
+    refundEscalate: {
         parameters: {
             query?: never;
             header?: {
@@ -6350,7 +6432,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["OmsPushRefundRequest"];
+                "application/json": components["schemas"]["RefundEscalateRequest"];
             };
         };
         responses: {
@@ -6365,7 +6447,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OmsPushRefundResponse"];
+                    "application/json": components["schemas"]["RefundEscalateResponse"];
                 };
             };
             400: components["responses"]["FacetError"];
@@ -6376,7 +6458,7 @@ export interface operations {
             500: components["responses"]["FacetError"];
         };
     };
-    omsDrain: {
+    openEscrowBuyerCancel: {
         parameters: {
             query?: never;
             header?: {
@@ -6388,7 +6470,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpenEscrowBuyerCancelRequest"];
+            };
+        };
         responses: {
             /** @description Success. */
             200: {
@@ -6401,7 +6487,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OmsDrainResponse"];
+                    "application/json": components["schemas"]["OpenEscrowBuyerCancelResponse"];
                 };
             };
             400: components["responses"]["FacetError"];
@@ -7272,46 +7358,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SubmitProofAttestationResponse"];
-                };
-            };
-            400: components["responses"]["FacetError"];
-            401: components["responses"]["FacetError"];
-            403: components["responses"]["FacetError"];
-            404: components["responses"]["FacetError"];
-            429: components["responses"]["FacetRateLimited"];
-            500: components["responses"]["FacetError"];
-        };
-    };
-    calendlyWebhook: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
-                Accept?: components["parameters"]["AcceptVersion"];
-                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
-                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["CalendlyWebhookEvent"];
-            };
-        };
-        responses: {
-            /** @description Success. */
-            200: {
-                headers: {
-                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
-                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
-                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
-                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
-                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CalendlyWebhookResponse"];
                 };
             };
             400: components["responses"]["FacetError"];

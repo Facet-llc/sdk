@@ -17,11 +17,11 @@
 // `UnsupportedVersionError`, `FetchError`, `CapabilityMismatchError`) so
 // callers can branch without sniffing message strings.
 
-import { AgentsTxtError, parseAgentsTxt, type AgentsTxt } from "@facet-llc/protocol";
+import { AgentsTxtError, parseAgentsTxt, type AgentsTxt } from "@facet-llc/adapter";
 import { FacetClient, type FacetClientOptions, type KyaTokenProvider } from "@facet-llc/client";
 
-export { AgentsTxtError, parseAgentsTxt } from "@facet-llc/protocol";
-export type { AgentsTxt } from "@facet-llc/protocol";
+export { AgentsTxtError, parseAgentsTxt } from "@facet-llc/adapter";
+export type { AgentsTxt } from "@facet-llc/adapter";
 export { FacetClient, FacetClientError, FacetTransportError } from "@facet-llc/client";
 export type { FacetClientOptions, KyaTokenProvider, RequestOptions } from "@facet-llc/client";
 
@@ -178,7 +178,7 @@ export interface FetchAgentsTxtOptions {
 
 /**
  * Fetch `/.well-known/agents.txt` for `domain`, parse it through
- * `@facet-llc/protocol`, and return the typed manifest.
+ * `@facet-llc/adapter`, and return the typed manifest.
  *
  * Behavior:
  *   - Honors `Cache-Control: max-age` from the response; with no header

@@ -10,7 +10,7 @@ For the Deno port see [`@facet-llc/sdk-deno`](https://www.npmjs.com/package/@fac
 
 ```bash
 npm install @facet-llc/sdk-node
-# pulls @facet-llc/client and @facet-llc/protocol as runtime deps
+# pulls @facet-llc/client and @facet-llc/adapter as runtime deps
 ```
 
 ## Quick start
@@ -41,7 +41,7 @@ console.log(manifest.terminal); // "https://api.merchant.example.com/v1"
 console.log(manifest.capabilities); // ["catalog", "paywalled-content"]
 ```
 
-Fetches `https://<domain>/.well-known/agents.txt`, runs it through the v1.2 parser in `@facet-llc/protocol`, and returns the typed manifest. The response is cached in-process.
+Fetches `https://<domain>/.well-known/agents.txt`, runs it through the v1.2 parser in `@facet-llc/adapter`, and returns the typed manifest. The response is cached in-process.
 
 Cache semantics:
 

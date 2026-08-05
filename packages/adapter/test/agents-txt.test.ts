@@ -471,3 +471,51 @@ OpenAPI: https://api.facet.llc/v1/openapi.json
     expect(Object.keys(m.unknownFields)).toEqual([]);
   });
 });
+
+// agents.txt v1.3 (additive `MCP:` + `Enroll:` fields).
+// Spec: specs/agents.txt-v1.3.md.
+describe("parseAgentsTxt — v1.3 additions", () => {
+  it("parses the MCP and Enroll fields on a v1.3 document", () => {
+    const input = `Facet-Version: 1.3
+Terminal: https://terminal.facet.llc
+KYA-Issuers: https://issuer.facet.llc
+MCP: https://terminal.facet.llc/mcp
+Enroll: https://issuer.facet.llc/v1/enroll
+`;
+    const m = parseAgentsTxt(input);
+    expect(m.facetVersion).toBe("1.3");
+    expect(m.mcpUrl).toBe("https://terminal.facet.llc/mcp");
+    expect(m.enrollUrl).toBe("https://issuer.facet.llc/v1/enroll");
+    // Must NOT leak into unknownFields.
+    expect(m.unknownFields["mcp"]).toBeUndefined();
+    expect(m.unknownFields["enroll"]).toBeUndefined();
+  });
+
+  it("MCP and Enroll are optional — absence leaves them undefined (back-compat)", () => {
+    const v1_2 = `Facet-Version: 1.2
+Terminal: https://x/v1
+KYA-Issuers: https://i
+OpenAPI: https://x/v1/openapi.json
+`;
+    const m = parseAgentsTxt(v1_2);
+    expect(m.mcpUrl).toBeUndefined();
+    expect(m.enrollUrl).toBeUndefined();
+  });
+
+  it("rejects an empty MCP or Enroll value in strict mode, tolerates it lenient", () => {
+    const emptyMcp = `Facet-Version: 1.3
+Terminal: https://x/v1
+KYA-Issuers: https://i
+MCP:
+`;
+    expect(() => parseAgentsTxt(emptyMcp)).toThrow(/MCP/);
+    expect(parseAgentsTxt(emptyMcp, { strict: false }).mcpUrl).toBeUndefined();
+
+    const emptyEnroll = `Facet-Version: 1.3
+Terminal: https://x/v1
+KYA-Issuers: https://i
+Enroll:
+`;
+    expect(() => parseAgentsTxt(emptyEnroll)).toThrow(/Enroll/);
+  });
+});

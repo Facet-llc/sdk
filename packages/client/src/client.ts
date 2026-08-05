@@ -9,6 +9,11 @@ import {
   type CapabilitiesResponse,
   type CatalogChangesSinceRequest,
   type CatalogChangesSinceResponse,
+  type CheckoutCompleteRequest,
+  type CheckoutCompleteResponse,
+  type CheckoutCreateRequest,
+  type CheckoutCreateResponse,
+  type CheckoutPayment,
   type DeleteWebhookRequest,
   type DeleteWebhookResponse,
   type FacetRateLimitState,
@@ -17,6 +22,8 @@ import {
   type GetOrderRequest,
   type GetOrderResponse,
   type GetProductRequest,
+  type DiscoverRequest,
+  type DiscoverResponse,
   type GetProductResponse,
   type HealthResponse,
   type IdentifyResponse,
@@ -47,7 +54,7 @@ import {
   type TermsResponse,
   type VersionResponse,
   type WhoamiResponse,
-} from "@facet-llc/protocol";
+} from "@facet-llc/adapter";
 import { FacetClientError, FacetTransportError, isFacetErrorEnvelope } from "./errors.ts";
 
 export type KyaTokenProvider = string | (() => string | Promise<string>);
@@ -64,6 +71,18 @@ export interface RequestOptions {
   readonly signal?: AbortSignal;
   readonly traceId?: string;
   readonly idempotencyKey?: string;
+}
+
+// The one-call UCP checkout surface. `authorizePayment` receives the created
+// session (carrying the SERVER-resolved pay_to + amount in payment_handlers) and
+// returns the buyer's signed payment, mirroring quote then sign then settle. It
+// is a client-only type because it carries a callback and is not wire-serialized.
+export interface CheckoutRequest {
+  readonly line_items: CheckoutCreateRequest["line_items"];
+  readonly fulfillment?: Record<string, unknown>;
+  readonly authorizePayment: (
+    session: CheckoutCreateResponse,
+  ) => CheckoutPayment | Promise<CheckoutPayment>;
 }
 
 // FacetClient is the single entry point. Construct once per terminal and
@@ -84,14 +103,17 @@ export class FacetClient {
     this.tokenProvider = opts.kyaToken;
     this.fetchImpl = opts.fetch ?? fetch;
     this.timeoutMs = opts.timeoutMs ?? 30_000;
-    this.userAgent = opts.userAgent ?? `@facet-llc/client/0.2.0`;
+    this.userAgent = opts.userAgent ?? `@facet-llc/client/0.4.0`;
   }
 
   // ── discovery ────────────────────────────────────────────────────────────
 
   async schema(opts?: RequestOptions): Promise<string> {
+    // The catalogue manifest is structured merchant data and now requires a KYA
+    // bearer (Terminal + WAF gate). auth:true attaches the configured token;
+    // calling this without one throws client-side rather than hitting a 401.
     return this.request<string>("GET", "/v1/schema", {
-      auth: false,
+      auth: true,
       parse: "text",
       ...(opts ?? {}),
     });
@@ -159,6 +181,58 @@ export class FacetClient {
       body: req,
       ...(opts ?? {}),
     });
+  }
+
+  // ── ucp checkout ───────────────────────────────────────────────────────────
+  //
+  // The agent-facing default checkout. checkout() orchestrates the two UCP legs
+  // (create then complete); the four-verb primitives (quote/reserve/settle) still
+  // power settlement underneath. The /ucp/* routes are public + activation-exempt
+  // at the origin, and the Facet edge WAF CARVES them out of the /v1 KYA-bearer
+  // gate (UCP_PROTOCOL_PATH in edge-cloudflare/decision.ts): a UCP caller
+  // authenticates by RFC 9421 signature at the origin, not an edge bearer, so the
+  // public x402 flow (no kyaToken) passes with no Authorization header. We still
+  // attach the KYA bearer whenever the client was constructed with one so an
+  // identified agent's token reaches the origin; the edge carve-out and the
+  // origin both accept the call with or without it.
+  // v1 checkout() completes an x402 cart; a Boson-escrow commit needs a verified
+  // RFC 9421 platform signature, so it is driven by @facet-llc/ucp's platform
+  // client, not this SDK.
+
+  async checkoutCreate(
+    req: CheckoutCreateRequest,
+    opts?: RequestOptions,
+  ): Promise<CheckoutCreateResponse> {
+    return this.request<CheckoutCreateResponse>("POST", "/ucp/v1/checkout-sessions", {
+      auth: this.tokenProvider !== undefined,
+      body: req,
+      ...(opts ?? {}),
+    });
+  }
+
+  async checkoutComplete(
+    req: CheckoutCompleteRequest,
+    opts?: RequestOptions,
+  ): Promise<CheckoutCompleteResponse> {
+    return this.request<CheckoutCompleteResponse>("POST", "/ucp/v1/checkout-sessions/complete", {
+      auth: this.tokenProvider !== undefined,
+      body: req,
+      ...(opts ?? {}),
+    });
+  }
+
+  // Orchestrate a full checkout: create the session, let the caller sign the
+  // server-resolved payment, then complete. Mirrors quote then sign then settle.
+  async checkout(req: CheckoutRequest, opts?: RequestOptions): Promise<CheckoutCompleteResponse> {
+    const session = await this.checkoutCreate(
+      {
+        line_items: req.line_items,
+        ...(req.fulfillment !== undefined ? { fulfillment: req.fulfillment } : {}),
+      },
+      opts,
+    );
+    const payment = await req.authorizePayment(session);
+    return this.checkoutComplete({ checkout_id: session.id, payment }, opts);
   }
 
   async getOrder(req: GetOrderRequest, opts?: RequestOptions): Promise<GetOrderResponse> {
@@ -320,6 +394,22 @@ export class FacetClient {
   async reputation(req: ReputationRequest, opts?: RequestOptions): Promise<ReputationResponse> {
     return this.request<ReputationResponse>("POST", "/v1/reputation", {
       auth: false,
+      body: req,
+      ...(opts ?? {}),
+    });
+  }
+
+  // Universal Business Index directory search (POST /v1/discover). The origin
+  // treats this as auth-optional (a public UBI read), but the Facet edge WAF
+  // gates every /v1/* path behind a bearer, so attach the KYA token whenever the
+  // client was constructed with one — that is what lets a directory query reach
+  // the Terminal from the public internet. When no token provider is set (a
+  // same-origin / in-process caller that never crosses the edge), the call is
+  // sent unauthenticated. The response carries a `featured` array (surfaced ahead
+  // of `results`) plus paging fields.
+  async discover(req: DiscoverRequest, opts?: RequestOptions): Promise<DiscoverResponse> {
+    return this.request<DiscoverResponse>("POST", "/v1/discover", {
+      auth: this.tokenProvider !== undefined,
       body: req,
       ...(opts ?? {}),
     });

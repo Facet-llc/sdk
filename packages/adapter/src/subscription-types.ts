@@ -1,4 +1,4 @@
-// @facet-llc/protocol — Subscription primitive wire-contract types.
+// @facet-llc/adapter — Subscription primitive wire-contract types.
 //
 // Wire-contract types for the subscription primitive, authored in the
 // protocol package as the canonical source.

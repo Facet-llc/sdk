@@ -27,6 +27,11 @@ const KNOWN_TOP_LEVEL = new Set<string>([
   // served at GET /v1/openapi.json so SDK generators can materialize a
   // client without an out-of-band lookup.
   "openapi",
+  // v1.3 additions. `mcp` points at the network-level Facet MCP endpoint an
+  // agent connects to for cross-merchant tools; `enroll` points at the
+  // self-serve KYA enrollment endpoint an agent posts to for an identity.
+  "mcp",
+  "enroll",
   // Remaining v1.1 top-level keys (per spec §5) are intentionally NOT
   // added here. They flow through `unknownFields` so the round-trip
   // contract from spec §2 ("Unknown sections + keys MUST be preserved")
@@ -90,7 +95,21 @@ export interface AgentsTxt {
    * v1.1 documents.
    */
   readonly openApiUrl?: string;
-  /** Top-level keys present in the source but not defined by v0.2 / v1.0 / v1.1 / v1.2. Preserved for round-tripping. */
+  // v1.3 additions.
+  /**
+   * Absolute URL of the network-level Facet MCP endpoint (typically
+   * `https://terminal.facet.llc/mcp`). An agent connects here for the
+   * cross-merchant tools (discover, get_merchant, search, quote) over MCP
+   * streamable HTTP. Absent on v0.2 / v1.0 / v1.1 / v1.2 documents.
+   */
+  readonly mcpUrl?: string;
+  /**
+   * Absolute URL of the self-serve KYA enrollment endpoint (typically
+   * `https://issuer.facet.llc/v1/enroll`). An agent posts a generated public
+   * key + proof here to obtain a Facet identity. Absent on earlier documents.
+   */
+  readonly enrollUrl?: string;
+  /** Top-level keys present in the source but not defined by v0.2 / v1.0 / v1.1 / v1.2 / v1.3. Preserved for round-tripping. */
   readonly unknownFields: Readonly<Record<string, string>>;
   /** [section] blocks. Section and key names are lower-cased. v1.1 sections (e.g. `business_index`, `booking`, `auction`, `rfq`, `regulated`) flow through here. */
   readonly sections: Readonly<Record<string, Readonly<Record<string, string>>>>;
@@ -259,6 +278,29 @@ export function parseAgentsTxt(input: string, options: ParseOptions = {}): Agent
     }
   }
 
+  // v1.3 — MCP + Enroll endpoint URLs. Same handling as OpenAPI: optional,
+  // validated only as a non-empty string (URL validation lives in the client).
+  const mcpRaw = topLevel["mcp"];
+  let mcpUrl: string | undefined;
+  if (mcpRaw !== undefined) {
+    const trimmed = mcpRaw.trim();
+    if (trimmed.length === 0) {
+      if (strict) throw new AgentsTxtError("MCP field is present but empty");
+    } else {
+      mcpUrl = trimmed;
+    }
+  }
+  const enrollRaw = topLevel["enroll"];
+  let enrollUrl: string | undefined;
+  if (enrollRaw !== undefined) {
+    const trimmed = enrollRaw.trim();
+    if (trimmed.length === 0) {
+      if (strict) throw new AgentsTxtError("Enroll field is present but empty");
+    } else {
+      enrollUrl = trimmed;
+    }
+  }
+
   return {
     facetVersion: topLevel["facet-version"] ?? "",
     terminal: topLevel["terminal"] ?? "",
@@ -279,6 +321,8 @@ export function parseAgentsTxt(input: string, options: ParseOptions = {}): Agent
     ...(capabilities !== undefined && { capabilities }),
     ...(regulatedGates !== undefined && { regulatedGates }),
     ...(openApiUrl !== undefined && { openApiUrl }),
+    ...(mcpUrl !== undefined && { mcpUrl }),
+    ...(enrollUrl !== undefined && { enrollUrl }),
     unknownFields,
     sections,
   };

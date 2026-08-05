@@ -48,12 +48,15 @@ import type {
   VerifyAuthorityOk,
   WebhookOutcome,
   WebhookRequest,
-} from "@facet-llc/protocol";
+} from "@facet-llc/adapter";
 import { Buffer } from "node:buffer";
 import Stripe from "stripe";
 
 const PACKAGE_VERSION = "0.2.0";
-const STRIPE_API_VERSION: Stripe.LatestApiVersion = "2025-02-24.acacia";
+// Pinned to the wire API version stripe@22 ships (its `ApiVersion` const). Keep
+// this in lockstep with the `stripe` dependency on every SDK major bump — the
+// usage site (new Stripe({ apiVersion })) is what type-checks it against the SDK.
+const STRIPE_API_VERSION = "2026-05-27.dahlia";
 
 /** Facet-side identity record for one Stripe PaymentIntent. The
  *  adapter writes one of these on the PI-create path inside
@@ -190,6 +193,7 @@ export class StripeAdapter implements FacetPaymentRailAdapter {
       if (existingPaymentIntent !== undefined) {
         const pi = await stripe.paymentIntents.retrieve(
           existingPaymentIntent,
+          undefined,
           requestOptionsFor(cfg.value, input.ctx),
         );
         const validated = validateRetrievedIntent(pi, input);
@@ -314,6 +318,7 @@ export class StripeAdapter implements FacetPaymentRailAdapter {
     try {
       const pi = await stripe.paymentIntents.retrieve(
         input.authority_handle,
+        undefined,
         requestOptionsFor(cfg.value, input.ctx),
       );
       if (pi.status !== "requires_capture" && pi.status !== "succeeded") {
@@ -408,6 +413,7 @@ export class StripeAdapter implements FacetPaymentRailAdapter {
       if (input.action === "accept") {
         dispute = await stripe.disputes.close(
           input.settlement_id,
+          undefined,
           requestOptionsFor(cfg.value, input.ctx),
         );
       } else {

@@ -1,4 +1,4 @@
-// @facet-llc/protocol — Knowledge-graph (facet × graphify) types.
+// @facet-llc/adapter — Knowledge-graph (facet × graphify) types.
 //
 // Wire-contract types for the knowledge-graph (facet × graphify)
 // primitive, authored in the protocol package.

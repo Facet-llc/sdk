@@ -1,6 +1,6 @@
 {
   "name": "@facet-llc/origination-coinbase-cdp",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": false,
   "type": "module",
   "description": "Facet Terminal origination verifier for Coinbase Developer Platform AgentKit credentials. Verifies wallet-signed attestations from agents provisioned via CDP and emits an AgentPrincipal scoped to the agent's CDP wallet address.",
@@ -40,13 +40,13 @@
   },
   "dependencies": {
     "@coinbase/cdp-sdk": "1.50.0",
-    "@facet-llc/protocol": "workspace:*",
-    "viem": "2.50.4"
+    "@facet-llc/adapter": "workspace:*",
+    "viem": "2.55.2"
   },
   "devDependencies": {
     "tsup": "^8.5.0",
     "typescript": "^5.7.2",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.10"
   },
   "homepage": "https://github.com/facet-llc/sdk/tree/main/packages/origination-coinbase-cdp",
   "bugs": {

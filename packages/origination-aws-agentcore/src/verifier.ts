@@ -21,7 +21,7 @@ import type {
   OriginationVerifierMetadata,
   VerifyAttestationInput,
   VerifyAttestationResult,
-} from "@facet-llc/protocol";
+} from "@facet-llc/adapter";
 
 const PACKAGE_VERSION = "0.2.0";
 

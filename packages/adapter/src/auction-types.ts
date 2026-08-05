@@ -1,4 +1,4 @@
-// @facet-llc/protocol — Auction primitive wire-contract types.
+// @facet-llc/adapter — Auction primitive wire-contract types.
 //
 // Wire-contract types for the auction primitive, authored in the
 // protocol package as the canonical source.

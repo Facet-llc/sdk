@@ -1,4 +1,4 @@
-// @facet-llc/protocol — Stripe Connect onboarding + billing types.
+// @facet-llc/adapter — Stripe Connect onboarding + billing types.
 //
 // Wire types for the four Stripe-facing Terminal routes:
 //   POST /v1/stripe/onboarding_link

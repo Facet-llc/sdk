@@ -1,5 +1,10 @@
 export { FacetClient } from "./client.ts";
-export type { FacetClientOptions, KyaTokenProvider, RequestOptions } from "./client.ts";
+export type {
+  CheckoutRequest,
+  FacetClientOptions,
+  KyaTokenProvider,
+  RequestOptions,
+} from "./client.ts";
 export { FacetClientError, FacetTransportError, isFacetErrorEnvelope } from "./errors.ts";
 export { verifyWebhookDelivery } from "./webhook.ts";
 export type { VerifyWebhookOptions, VerifyWebhookResult } from "./webhook.ts";
@@ -14,6 +19,15 @@ export type {
   CatalogChangeKind,
   CatalogChangesSinceRequest,
   CatalogChangesSinceResponse,
+  CheckoutCompleteRequest,
+  CheckoutCompleteResponse,
+  CheckoutCreateRequest,
+  CheckoutCreateResponse,
+  CheckoutCredential,
+  CheckoutLineItem,
+  CheckoutOrderRef,
+  CheckoutPayment,
+  CheckoutPaymentInstrument,
   DeleteWebhookRequest,
   DeleteWebhookResponse,
   Document,
@@ -67,7 +81,7 @@ export type {
   WebhookEvent,
   WebhookSubscription,
   WhoamiResponse,
-} from "@facet-llc/protocol";
+} from "@facet-llc/adapter";
 export {
   FACET_PROTOCOL_VERSION,
   HEADER_WEBHOOK_DELIVERY_ID,
@@ -75,4 +89,4 @@ export {
   HEADER_WEBHOOK_SIGNATURE,
   MCP_PROTOCOL_VERSION,
   WEBHOOK_EVENTS,
-} from "@facet-llc/protocol";
+} from "@facet-llc/adapter";

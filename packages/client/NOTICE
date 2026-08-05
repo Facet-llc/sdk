@@ -24,7 +24,7 @@ Third-party components
 
 This package has exactly one runtime dependency:
 
-    @facet-llc/protocol   — Copyright (c) 2026 Facet, LLC.
+    @facet-llc/adapter   — Copyright (c) 2026 Facet, LLC.
                             Licensed under the Apache License, Version 2.0.
                             Authored by the same entity as this package.
 
@@ -36,7 +36,7 @@ The published tarball contains:
     - NOTICE                  (this file)
     - dist/                   (TypeScript compiled output authored by Facet)
 
-When installed from npm, the npm client resolves `@facet-llc/protocol`
+When installed from npm, the npm client resolves `@facet-llc/adapter`
 to a peer installation; no third-party code is bundled into this
 package's `dist/`.
 

@@ -1,4 +1,4 @@
-// @facet-llc/protocol — Multi-rail payment dispatch wire-contract types.
+// @facet-llc/adapter — Multi-rail payment dispatch wire-contract types.
 //
 // Canonical `PaymentsDispatchRequest` wire-contract types, authored in
 // the protocol package.
@@ -27,12 +27,7 @@ import type { MoneyAmount, RailId } from "./rail-adapter.ts";
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type PaymentsDispatchOp =
-  | "verify_authority"
-  | "reserve_authority"
-  | "capture"
-  | "refund"
-  | "dispute"
-  | "handle_webhook";
+  "verify_authority" | "reserve_authority" | "capture" | "refund" | "dispute" | "handle_webhook";
 
 /** Common fields every dispatch request carries regardless of `op`. */
 export interface PaymentsDispatchRequestBase {
@@ -71,6 +66,11 @@ export interface RefundDispatch extends PaymentsDispatchRequestBase {
   readonly amount: MoneyAmount;
   readonly settlement_id: string;
   readonly reason: string;
+  /** Optional 0x address the refund pays back to. Required by the x402 rail
+   *  (a merchant-signed ERC-3009 transfer to this address); ignored by rails
+   *  that reverse off the settlement handle alone (Stripe) or the buyer voucher
+   *  (Boson). The Terminal threads it into the adapter's RefundInput. */
+  readonly refund_to?: string;
 }
 
 export interface DisputeDispatch extends PaymentsDispatchRequestBase {

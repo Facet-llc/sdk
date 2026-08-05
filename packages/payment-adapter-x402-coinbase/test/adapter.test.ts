@@ -67,6 +67,48 @@ async function buildSignedHeader(opts: {
   });
 }
 
+/** Build a MERCHANT-signed ERC-3009 send-back X-PAYMENT for the refund RELAY
+ *  branch, with explicit from/to/value. Signed with the deterministic test key so
+ *  the payload is well-formed and passes the x402 schema; the mocked facilitator
+ *  never recovers the signature, so `from` can be any address. The refund relay
+ *  binds from==payTo, to==refund_to, value==amount by field equality, which is
+ *  exactly what these cases exercise. */
+async function buildSendBackHeader(opts: {
+  from: `0x${string}`;
+  to: `0x${string}`;
+  value: string;
+  network?: "base" | "base-sepolia";
+}): Promise<string> {
+  const account = privateKeyToAccount(TEST_PRIVATE_KEY);
+  const authorization = {
+    from: opts.from.toLowerCase(),
+    to: opts.to.toLowerCase(),
+    value: opts.value,
+    validAfter: "0",
+    validBefore: "1800000000",
+    nonce: `0x${"cc".repeat(32)}`,
+  };
+  const signature = await account.signTypedData({
+    domain: BASE_SEPOLIA_USDC_DOMAIN,
+    types: EIP3009_TYPES,
+    primaryType: "TransferWithAuthorization",
+    message: {
+      from: authorization.from as `0x${string}`,
+      to: authorization.to as `0x${string}`,
+      value: BigInt(authorization.value),
+      validAfter: BigInt(authorization.validAfter),
+      validBefore: BigInt(authorization.validBefore),
+      nonce: authorization.nonce as `0x${string}`,
+    },
+  });
+  return encodePaymentHeader({
+    x402Version: 1,
+    scheme: "exact",
+    network: opts.network ?? "base-sepolia",
+    payload: { signature, authorization },
+  });
+}
+
 /** Build an adapter with a mocked facilitator. Mocking is done by
  *  swapping global fetch — the x402 SDK's facilitator client calls fetch
  *  to hit the configured URL. */
@@ -90,8 +132,17 @@ function makeAdapterWithMockedFacilitator(opts: {
     network: "base-sepolia",
     errorReason: opts.settleErrorReason,
   };
+  // Captures the JSON body of every POST /settle so refund tests can assert what
+  // was relayed to the facilitator (payload authorization + requirements.payTo).
+  const settleRequests: Array<{
+    x402Version?: number;
+    paymentPayload?: {
+      payload?: { authorization?: { from?: string; to?: string; value?: string } };
+    };
+    paymentRequirements?: { payTo?: string; description?: string };
+  }> = [];
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+  globalThis.fetch = vi.fn(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     if (url.endsWith("/verify")) {
       return new Response(JSON.stringify(verifyResponse), {
@@ -100,6 +151,13 @@ function makeAdapterWithMockedFacilitator(opts: {
       });
     }
     if (url.endsWith("/settle")) {
+      if (typeof init?.body === "string") {
+        try {
+          settleRequests.push(JSON.parse(init.body));
+        } catch {
+          // non-JSON body, leave uncaptured
+        }
+      }
       return new Response(JSON.stringify(settleResponse), {
         status: 200,
         headers: { "content-type": "application/json" },
@@ -119,7 +177,7 @@ function makeAdapterWithMockedFacilitator(opts: {
       : {}),
     ...(opts.now ? { now: opts.now } : {}),
   });
-  return { adapter, restore };
+  return { adapter, restore, settleRequests };
 }
 
 const ctx = {
@@ -554,17 +612,299 @@ describe("X402CoinbaseAdapter hardening", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("X402CoinbaseAdapter.refund", () => {
-  it("returns METHOD_NOT_ALLOWED until Phase 5 merchant signer wiring lands", async () => {
-    const adapter = new X402CoinbaseAdapter({ network: "base-sepolia" });
-    const result = await adapter.refund({
-      ctx,
-      merchant_config: { x402_pay_to_address: MERCHANT_ADDRESS },
-      settlement_id: "0xdeadbeef",
-      amount: { amount: 1, currency: "USDC" },
-      reason: "test",
+  // A distinct buyer refund address, and a signer address that is NOT the payTo.
+  const REFUND_TO = "0x1111111111111111111111111111111111111111" as const;
+  const OTHER_ADDRESS = "0x2222222222222222222222222222222222222222" as const;
+  // A fake merchant signer whose address equals the payTo. Returns a
+  // fixed-length (65-byte) signature; the mocked facilitator does not verify it.
+  const signTypedData = async (): Promise<`0x${string}`> => `0x${"11".repeat(65)}`;
+  const validSigner = { address: MERCHANT_ADDRESS, signTypedData };
+
+  it("signs and relays a refund when a valid signer + refund_to are present", async () => {
+    const { adapter, restore, settleRequests } = makeAdapterWithMockedFacilitator({
+      settleSuccess: true,
+      settleTx: "0xrefundtx" as `0x${string}`,
     });
-    expect(result.kind).toBe("error");
-    if (result.kind === "error") expect(result.code).toBe("METHOD_NOT_ALLOWED");
+    try {
+      const result = await adapter.refund({
+        ctx,
+        merchant_config: {
+          x402_pay_to_address: MERCHANT_ADDRESS,
+          x402_refund_signer: validSigner,
+        },
+        settlement_id: "0xsettlement",
+        amount: { amount: 1000000, currency: "USDC" },
+        reason: "customer returned item",
+        refund_to: REFUND_TO,
+      });
+      expect(result.kind).toBe("ok");
+      if (result.kind === "ok") expect(result.value.refund_id).toBe("0xrefundtx");
+      // Exactly one settle call, paying the REFUND recipient, transferring FROM
+      // the merchant payTo TO refund_to for the full server-derived amount.
+      expect(settleRequests).toHaveLength(1);
+      const req = settleRequests[0];
+      if (req === undefined) throw new Error("expected exactly one settle request");
+      expect(req.paymentRequirements?.payTo).toBe(REFUND_TO);
+      const auth = req.paymentPayload?.payload?.authorization;
+      expect(auth?.from?.toLowerCase()).toBe(MERCHANT_ADDRESS.toLowerCase());
+      expect(auth?.to?.toLowerCase()).toBe(REFUND_TO.toLowerCase());
+      expect(auth?.value).toBe("1000000");
+    } finally {
+      restore();
+    }
+  });
+
+  it("returns INVALID_REQUEST when no x402_refund_signer is wired", async () => {
+    const { adapter, restore, settleRequests } = makeAdapterWithMockedFacilitator({
+      settleSuccess: true,
+    });
+    try {
+      const result = await adapter.refund({
+        ctx,
+        merchant_config: { x402_pay_to_address: MERCHANT_ADDRESS },
+        settlement_id: "0xsettlement",
+        amount: { amount: 1000000, currency: "USDC" },
+        reason: "no signer",
+        refund_to: REFUND_TO,
+      });
+      expect(result.kind).toBe("error");
+      if (result.kind === "error") expect(result.code).toBe("INVALID_REQUEST");
+      // Fail closed BEFORE any facilitator call.
+      expect(settleRequests).toHaveLength(0);
+    } finally {
+      restore();
+    }
+  });
+
+  it("returns INVALID_REQUEST when refund_to is missing", async () => {
+    const { adapter, restore } = makeAdapterWithMockedFacilitator({ settleSuccess: true });
+    try {
+      const result = await adapter.refund({
+        ctx,
+        merchant_config: {
+          x402_pay_to_address: MERCHANT_ADDRESS,
+          x402_refund_signer: validSigner,
+        },
+        settlement_id: "0xsettlement",
+        amount: { amount: 1000000, currency: "USDC" },
+        reason: "missing refund_to",
+      });
+      expect(result.kind).toBe("error");
+      if (result.kind === "error") expect(result.code).toBe("INVALID_REQUEST");
+    } finally {
+      restore();
+    }
+  });
+
+  it("returns INVALID_REQUEST when refund_to equals the merchant payTo (no self-refund)", async () => {
+    const { adapter, restore } = makeAdapterWithMockedFacilitator({ settleSuccess: true });
+    try {
+      const result = await adapter.refund({
+        ctx,
+        merchant_config: {
+          x402_pay_to_address: MERCHANT_ADDRESS,
+          x402_refund_signer: validSigner,
+        },
+        settlement_id: "0xsettlement",
+        amount: { amount: 1000000, currency: "USDC" },
+        reason: "self refund",
+        refund_to: MERCHANT_ADDRESS,
+      });
+      expect(result.kind).toBe("error");
+      if (result.kind === "error") expect(result.code).toBe("INVALID_REQUEST");
+    } finally {
+      restore();
+    }
+  });
+
+  it("returns UNAUTHORIZED refund_signer_mismatch when the signer is not the payTo", async () => {
+    const { adapter, restore, settleRequests } = makeAdapterWithMockedFacilitator({
+      settleSuccess: true,
+    });
+    try {
+      const result = await adapter.refund({
+        ctx,
+        merchant_config: {
+          x402_pay_to_address: MERCHANT_ADDRESS,
+          x402_refund_signer: { address: OTHER_ADDRESS, signTypedData },
+        },
+        settlement_id: "0xsettlement",
+        amount: { amount: 1000000, currency: "USDC" },
+        reason: "wrong signer",
+        refund_to: REFUND_TO,
+      });
+      expect(result.kind).toBe("error");
+      if (result.kind === "error") {
+        expect(result.code).toBe("UNAUTHORIZED");
+        expect(result.native_code).toBe("refund_signer_mismatch");
+      }
+      // Never relayed a transfer signed by a non-payTo key.
+      expect(settleRequests).toHaveLength(0);
+    } finally {
+      restore();
+    }
+  });
+
+  it("returns SETTLEMENT_FAILED when the facilitator declines the refund", async () => {
+    const { adapter, restore } = makeAdapterWithMockedFacilitator({
+      settleSuccess: false,
+      settleErrorReason: "insufficient_funds",
+    });
+    try {
+      const result = await adapter.refund({
+        ctx,
+        merchant_config: {
+          x402_pay_to_address: MERCHANT_ADDRESS,
+          x402_refund_signer: validSigner,
+        },
+        settlement_id: "0xsettlement",
+        amount: { amount: 1000000, currency: "USDC" },
+        reason: "declined",
+        refund_to: REFUND_TO,
+      });
+      expect(result.kind).toBe("error");
+      if (result.kind === "error") {
+        expect(result.code).toBe("SETTLEMENT_FAILED");
+        expect(result.native_code).toBe("insufficient_funds");
+      }
+    } finally {
+      restore();
+    }
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Model B relay branch: a MERCHANT-signed ERC-3009 send-back rides in
+  // authority.x_payment. The adapter holds NO key: it relays the merchant's
+  // payload after binding from==payTo, to==refund_to, value==amount. The
+  // custodial-signer fallback above is the legacy path; these cover the relay.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  it("RELAYS a merchant-signed send-back via authority.x_payment with NO managed signer, binding from=payTo/to=refund_to/value", async () => {
+    const header = await buildSendBackHeader({
+      from: MERCHANT_ADDRESS,
+      to: REFUND_TO,
+      value: "1000000",
+    });
+    const { adapter, restore, settleRequests } = makeAdapterWithMockedFacilitator({
+      settleSuccess: true,
+      settleTx: "0xrelaytx" as `0x${string}`,
+    });
+    try {
+      const result = await adapter.refund({
+        ctx,
+        // NO x402_refund_signer: the relay is fully non-custodial.
+        merchant_config: { x402_pay_to_address: MERCHANT_ADDRESS },
+        settlement_id: "0xsettlement",
+        amount: { amount: 1000000, currency: "USDC" },
+        reason: "customer returned item",
+        refund_to: REFUND_TO,
+        ...({ authority: { x_payment: header } } as unknown as object),
+      });
+      expect(result.kind).toBe("ok");
+      if (result.kind === "ok") expect(result.value.refund_id).toBe("0xrelaytx");
+      // The merchant's own payload was relayed to the facilitator unchanged: it
+      // settles TO refund_to, moving FROM payTo for exactly the refund amount.
+      expect(settleRequests).toHaveLength(1);
+      const req = settleRequests[0];
+      if (req === undefined) throw new Error("expected exactly one settle request");
+      expect(req.paymentRequirements?.payTo).toBe(REFUND_TO);
+      const auth = req.paymentPayload?.payload?.authorization;
+      expect(auth?.from?.toLowerCase()).toBe(MERCHANT_ADDRESS.toLowerCase());
+      expect(auth?.to?.toLowerCase()).toBe(REFUND_TO.toLowerCase());
+      expect(auth?.value).toBe("1000000");
+    } finally {
+      restore();
+    }
+  });
+
+  it("rejects UNAUTHORIZED refund_from_mismatch when the send-back is signed FROM a non-payTo address", async () => {
+    // from = OTHER_ADDRESS (not the merchant payTo): a caller must not relay a
+    // send-back that moves funds out of a wallet that is not the merchant's.
+    const header = await buildSendBackHeader({
+      from: OTHER_ADDRESS,
+      to: REFUND_TO,
+      value: "1000000",
+    });
+    const { adapter, restore, settleRequests } = makeAdapterWithMockedFacilitator({
+      settleSuccess: true,
+    });
+    try {
+      const result = await adapter.refund({
+        ctx,
+        merchant_config: { x402_pay_to_address: MERCHANT_ADDRESS },
+        settlement_id: "0xsettlement",
+        amount: { amount: 1000000, currency: "USDC" },
+        reason: "from mismatch",
+        refund_to: REFUND_TO,
+        ...({ authority: { x_payment: header } } as unknown as object),
+      });
+      expect(result.kind).toBe("error");
+      if (result.kind === "error") {
+        expect(result.code).toBe("UNAUTHORIZED");
+        expect(result.native_code).toBe("refund_from_mismatch");
+      }
+      // Never relayed a transfer whose `from` is not the merchant payTo.
+      expect(settleRequests).toHaveLength(0);
+    } finally {
+      restore();
+    }
+  });
+
+  it("rejects INVALID_REQUEST when the send-back `to` is not the refund_to (redirected recipient)", async () => {
+    // from = payTo (ok) but to = OTHER_ADDRESS, not the authorized refund_to.
+    const header = await buildSendBackHeader({
+      from: MERCHANT_ADDRESS,
+      to: OTHER_ADDRESS,
+      value: "1000000",
+    });
+    const { adapter, restore, settleRequests } = makeAdapterWithMockedFacilitator({
+      settleSuccess: true,
+    });
+    try {
+      const result = await adapter.refund({
+        ctx,
+        merchant_config: { x402_pay_to_address: MERCHANT_ADDRESS },
+        settlement_id: "0xsettlement",
+        amount: { amount: 1000000, currency: "USDC" },
+        reason: "to mismatch",
+        refund_to: REFUND_TO,
+        ...({ authority: { x_payment: header } } as unknown as object),
+      });
+      expect(result.kind).toBe("error");
+      if (result.kind === "error") expect(result.code).toBe("INVALID_REQUEST");
+      expect(settleRequests).toHaveLength(0);
+    } finally {
+      restore();
+    }
+  });
+
+  it("rejects INVALID_REQUEST when the send-back `value` is not the refund amount (under-refund)", async () => {
+    // from = payTo, to = refund_to (both ok) but value = 1 atomic while the server
+    // refund amount is 1_000_000: a caller must not relay a lesser send-back.
+    const header = await buildSendBackHeader({
+      from: MERCHANT_ADDRESS,
+      to: REFUND_TO,
+      value: "1",
+    });
+    const { adapter, restore, settleRequests } = makeAdapterWithMockedFacilitator({
+      settleSuccess: true,
+    });
+    try {
+      const result = await adapter.refund({
+        ctx,
+        merchant_config: { x402_pay_to_address: MERCHANT_ADDRESS },
+        settlement_id: "0xsettlement",
+        amount: { amount: 1000000, currency: "USDC" },
+        reason: "value mismatch",
+        refund_to: REFUND_TO,
+        ...({ authority: { x_payment: header } } as unknown as object),
+      });
+      expect(result.kind).toBe("error");
+      if (result.kind === "error") expect(result.code).toBe("INVALID_REQUEST");
+      expect(settleRequests).toHaveLength(0);
+    } finally {
+      restore();
+    }
   });
 });
 

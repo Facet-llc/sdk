@@ -222,8 +222,7 @@ export interface PaymentRequiredRequest {
 /** Return shape of `generatePaymentHeader`. One of two keys depending on
  *  x402 version: `X-PAYMENT` for v1, `PAYMENT-SIGNATURE` for v2. */
 export type GeneratedPaymentHeader =
-  | { readonly "X-PAYMENT": string }
-  | { readonly "PAYMENT-SIGNATURE": string };
+  { readonly "X-PAYMENT": string } | { readonly "PAYMENT-SIGNATURE": string };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PaymentManager
@@ -519,8 +518,7 @@ export class PaymentManager {
     // discriminant; if it's the other arm ($UnknownMember) cryptoProof
     // stays undefined and we throw below.
     const proofMember = processResult.paymentOutput as
-      | { cryptoX402?: CryptoX402PaymentOutput }
-      | undefined;
+      { cryptoX402?: CryptoX402PaymentOutput } | undefined;
     const cryptoProof: CryptoX402PaymentOutput | undefined = proofMember?.cryptoX402;
     if (cryptoProof === undefined || cryptoProof.payload === undefined) {
       throw new PaymentError(

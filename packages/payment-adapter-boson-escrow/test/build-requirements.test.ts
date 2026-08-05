@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { MerchantConfig, RailRequestContext } from "@facet-llc/protocol";
+import type { MerchantConfig, RailRequestContext } from "@facet-llc/adapter";
 
 // Capture what the adapter passes to server.buildPaymentRequirements so we can
 // assert the offer template carries the gate-critical fields verifyAuthority

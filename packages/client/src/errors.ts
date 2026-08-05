@@ -3,7 +3,7 @@ import type {
   FacetErrorCode,
   FacetErrorEnvelope,
   FacetErrorSuggest,
-} from "@facet-llc/protocol";
+} from "@facet-llc/adapter";
 
 // Client-side counterpart of the server's FacetError. Thrown from every
 // FacetClient method on a non-2xx response, carrying the parsed error

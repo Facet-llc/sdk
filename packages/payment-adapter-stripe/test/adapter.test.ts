@@ -157,7 +157,7 @@ describe("StripeAdapter.verifyAuthority", () => {
     });
 
     expect(result.kind).toBe("ok");
-    expect(retrieve).toHaveBeenCalledWith("pi_test_existing", expect.any(Object));
+    expect(retrieve).toHaveBeenCalledWith("pi_test_existing", undefined, expect.any(Object));
   });
 
   it("rejects when the retrieved PI's amount disagrees with the requested amount", async () => {
@@ -477,7 +477,7 @@ describe("StripeAdapter.handleWebhook", () => {
 
   it("returns UNAUTHORIZED when signature verification fails", async () => {
     const constructEventAsync = vi.fn().mockRejectedValue(
-      new Stripe.errors.StripeSignatureVerificationError({
+      new Stripe.errors.StripeSignatureVerificationError("sig_header", "payload", {
         type: "authentication_error",
         message: "No signatures found matching the expected signature for payload",
       } as Stripe.StripeRawError),
@@ -534,7 +534,7 @@ describe("StripeAdapter.handleWebhook versioned secrets", () => {
   const constructEventFor = (goodSecret: string) =>
     vi.fn(async (_body: unknown, _sig: unknown, secret: unknown) => {
       if (secret !== goodSecret) {
-        throw new Stripe.errors.StripeSignatureVerificationError({
+        throw new Stripe.errors.StripeSignatureVerificationError("sig_header", "payload", {
           type: "authentication_error",
           message: "No signatures found matching the expected signature for payload",
         } as Stripe.StripeRawError);

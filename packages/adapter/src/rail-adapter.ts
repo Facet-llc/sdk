@@ -1,4 +1,4 @@
-// @facet-llc/protocol — Payment-rail adapter interface.
+// @facet-llc/adapter — Payment-rail adapter interface.
 //
 // A FacetPaymentRailAdapter is the SETTLEMENT side of an agent payment:
 // once an inbound request has been authenticated (by an OriginationVerifier
@@ -249,11 +249,30 @@ export interface RefundInput {
   readonly settlement_id: string;
   readonly amount: MoneyAmount;
   readonly reason: string;
+  /** Optional rail-specific artifact supplied at refund time, for rails whose
+   *  refund step needs a caller-signed authorization. Most rails ignore this
+   *  (Stripe/x402 refund off the settlement handle alone). Boson's pre-redeem
+   *  refund needs the buyer's `boson-cancelVoucher` meta-tx here (a cancel can
+   *  only be signed by the voucher holder). Same opaque shape as
+   *  `CaptureInput.authority`. */
+  readonly authority?: Readonly<Record<string, unknown>>;
+  /** Optional 0x address the refund pays back to. Consumed by the x402 rail,
+   *  where a refund is a fresh merchant-signed ERC-3009
+   *  transferWithAuthorization(from=merchant payTo, to=refund_to, value=amount)
+   *  relayed by the same facilitator that settled the capture. Other rails
+   *  ignore it (Stripe/Boson reverse off the settlement handle / voucher). */
+  readonly refund_to?: string;
 }
 
 export interface RefundOk {
   readonly refund_id: string;
   readonly refunded_at: string;
+  /** Optional rail-specific metadata the Terminal threads verbatim into the
+   *  signed receipt envelope + dispatch log (as on CaptureOk/DisputeOk). For
+   *  Boson's escrow rail this carries the post-cancel `escrow_state`
+   *  (`{exchange_id, exchange_state, dispute_state}`) + the cancel tx hash.
+   *  Opaque to the Terminal — copied, never interpreted. */
+  readonly rail_metadata?: Readonly<Record<string, unknown>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -276,6 +295,12 @@ export interface DisputeInput {
 export interface DisputeOk {
   readonly dispute_id: string;
   readonly status: "open" | "won" | "lost" | "withdrawn";
+  /** Optional rail-specific metadata the Terminal threads verbatim into the
+   *  signed receipt envelope + dispatch log (as on ReserveOk/SettlementOk). For
+   *  Boson's escrow rail this carries the post-transition `escrow_state`
+   *  (`{exchange_id, exchange_state, dispute_state}`) + the dispute tx hash.
+   *  Opaque to the Terminal — copied, never interpreted. */
+  readonly rail_metadata?: Readonly<Record<string, unknown>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

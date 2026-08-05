@@ -1,4 +1,4 @@
-// @facet-llc/protocol — Agent origination attestation verifier.
+// @facet-llc/adapter — Agent origination attestation verifier.
 //
 // Orthogonal to the settlement rail (see rail-adapter.ts). An origination
 // verifier proves WHO the agent is and WHICH PLATFORM provisioned it —

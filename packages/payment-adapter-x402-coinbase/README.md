@@ -1,6 +1,6 @@
 # @facet-llc/payment-adapter-x402-coinbase
 
-Facet Terminal payment-rail adapter for x402 USDC settlement on Base via the Coinbase facilitator. Implements `FacetPaymentRailAdapter` from [`@facet-llc/protocol`](https://www.npmjs.com/package/@facet-llc/protocol).
+Facet Terminal payment-rail adapter for x402 USDC settlement on Base via the Coinbase facilitator. Implements `FacetPaymentRailAdapter` from [`@facet-llc/adapter`](https://www.npmjs.com/package/@facet-llc/adapter).
 
 ## What this is
 

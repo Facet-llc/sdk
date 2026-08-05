@@ -45,6 +45,20 @@ export {
   type OfferProductInfo,
 } from "./metadata.ts";
 
+// Offline validation of a buyer's pre-signed redeem meta-tx. A host storing a
+// deferred redeem calls this to prove the payload is signed by the buyer FOR the
+// exchange it is being filed against, instead of trusting the pairing.
+export {
+  BOSON_CANCEL_FUNCTION_NAME,
+  BOSON_REDEEM_FUNCTION_NAME,
+  type RedeemPayloadRejection,
+  type RedeemPayloadValidation,
+  validateCancelPayload,
+  type ValidateCancelPayloadArgs,
+  validateRedeemPayload,
+  type ValidateRedeemPayloadArgs,
+} from "./redeem-payload.ts";
+
 // Re-export the Boson SDK store + reader contracts so a host can implement
 // the injected persistence + on-chain reader against this single package
 // surface, without reaching into the Boson SDK directly.

@@ -66,14 +66,20 @@ describe("FacetClient discovery endpoints", () => {
     expect(client.lastTraceId).toBe("trace-server-side");
   });
 
-  it("GET /v1/schema returns the YAML body as a string", async () => {
+  it("GET /v1/schema (authenticated) returns the YAML body as a string", async () => {
     const yaml = "facet: 0.1.0\nsite:\n  id: acme\n";
-    const { fetch } = fakeFetch(
+    const { fetch, calls } = fakeFetch(
       () => new Response(yaml, { status: 200, headers: { "content-type": "application/yaml" } }),
     );
-    const client = new FacetClient({ terminalUrl: TERMINAL, fetch });
+    // The manifest now requires identity, so the client must carry a token.
+    const client = new FacetClient({
+      terminalUrl: TERMINAL,
+      fetch,
+      kyaToken: () => "test.kya.token",
+    });
     const got = await client.schema();
     expect(got).toBe(yaml);
+    expect(calls[0]!.headers["authorization"]).toBe("Bearer test.kya.token");
   });
 
   it("GET /v1/capabilities exposes nothing when the server omits rate-limit headers", async () => {
@@ -91,6 +97,44 @@ describe("FacetClient discovery endpoints", () => {
     const client = new FacetClient({ terminalUrl: TERMINAL, fetch });
     await client.capabilities();
     expect(client.lastRateLimit).toBeNull();
+  });
+});
+
+// ── UBI directory discovery ─────────────────────────────────────────────────
+
+describe("FacetClient.discover (UBI directory)", () => {
+  it("POST /v1/discover attaches the bearer when a token is configured, and parses featured + results", async () => {
+    const { fetch, calls } = fakeFetch(() =>
+      jsonResponse(200, {
+        featured: [{ ubi_id: "ubi_1", name: "Featured Co", featured: true, terminal_url: null }],
+        results: [{ ubi_id: "ubi_2", name: "Also Co", terminal_url: "https://also.example/v1" }],
+        total_estimate: 2,
+        next_offset: null,
+      }),
+    );
+    const client = new FacetClient({ terminalUrl: TERMINAL, fetch, kyaToken: "kya.dir.token" });
+    const got = await client.discover({ query: "coffee", limit: 2 });
+    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.url).toBe(`${TERMINAL}/v1/discover`);
+    // The edge WAF gates every /v1/* path, so a token-carrying client MUST send
+    // the bearer for a directory query to reach the Terminal.
+    expect(calls[0]!.headers["authorization"]).toBe("Bearer kya.dir.token");
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ query: "coffee", limit: 2 });
+    expect(got.featured[0]!.name).toBe("Featured Co");
+    expect(got.featured[0]!.featured).toBe(true);
+    expect(got.results[0]!.ubi_id).toBe("ubi_2");
+    expect(got.next_offset).toBeNull();
+  });
+
+  it("POST /v1/discover sends no Authorization when no token is configured (in-process caller)", async () => {
+    const { fetch, calls } = fakeFetch(() =>
+      jsonResponse(200, { featured: [], results: [], total_estimate: 0, next_offset: null }),
+    );
+    const client = new FacetClient({ terminalUrl: TERMINAL, fetch });
+    const got = await client.discover({ query: "coffee" });
+    expect(calls[0]!.headers["authorization"]).toBeUndefined();
+    expect(got.featured).toEqual([]);
+    expect(got.results).toEqual([]);
   });
 });
 
@@ -609,5 +653,123 @@ describe("FacetClient Phase 2 commerce", () => {
       const err = e as FacetClientError;
       expect(err.code).toBe("FORBIDDEN");
     }
+  });
+});
+
+// ── ucp checkout ─────────────────────────────────────────────────────────────
+
+describe("FacetClient UCP checkout", () => {
+  it("checkoutCreate() POSTs line_items to /ucp/v1/checkout-sessions and attaches the bearer", async () => {
+    const { fetch, calls } = fakeFetch(() =>
+      jsonResponse(200, {
+        id: "resv_abc",
+        status: "ready_for_complete",
+        currency: "USD",
+        payment_handlers: {
+          "llc.facet.x402": { network: "base", pay_to: "0xabc", amount: "28490000" },
+        },
+      }),
+    );
+    const client = new FacetClient({
+      terminalUrl: TERMINAL,
+      fetch,
+      kyaToken: "kya.checkout.token",
+    });
+    const session = await client.checkoutCreate({
+      line_items: [{ item: { id: "sku-1" }, quantity: 2 }],
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.url).toContain("/ucp/v1/checkout-sessions");
+    expect(calls[0]!.url).not.toContain("/complete");
+    expect(calls[0]!.headers["authorization"]).toBe("Bearer kya.checkout.token");
+    expect(JSON.parse(calls[0]!.body!)).toEqual({
+      line_items: [{ item: { id: "sku-1" }, quantity: 2 }],
+    });
+    expect(session.id).toBe("resv_abc");
+    expect(session.payment_handlers).toBeDefined();
+  });
+
+  it("checkoutCreate() sends no Authorization when no token is configured (in-process caller)", async () => {
+    const { fetch, calls } = fakeFetch(() =>
+      jsonResponse(200, { id: "resv_x", status: "ready_for_complete" }),
+    );
+    const client = new FacetClient({ terminalUrl: TERMINAL, fetch });
+    await client.checkoutCreate({ line_items: [{ item: { id: "sku-1" } }] });
+    expect(calls[0]!.headers["authorization"]).toBeUndefined();
+  });
+
+  it("checkoutComplete() POSTs the checkout_id + signed payment to /complete", async () => {
+    const { fetch, calls } = fakeFetch(() =>
+      jsonResponse(200, {
+        status: "completed",
+        order: { id: "ord_1", permalink_url: "https://shop/o/1" },
+        settlement_id: "0xhash",
+      }),
+    );
+    const client = new FacetClient({ terminalUrl: TERMINAL, fetch, kyaToken: "t" });
+    const res = await client.checkoutComplete({
+      checkout_id: "resv_abc",
+      payment: { instruments: [{ credential: { type: "x402_authorization", token: "eyJ" } }] },
+    });
+    expect(calls[0]!.url).toContain("/ucp/v1/checkout-sessions/complete");
+    const sent = JSON.parse(calls[0]!.body!);
+    expect(sent.checkout_id).toBe("resv_abc");
+    expect(sent.payment.instruments[0].credential.type).toBe("x402_authorization");
+    expect(res.status).toBe("completed");
+    expect(res.settlement_id).toBe("0xhash");
+  });
+
+  it("checkout() orchestrates create then complete, threading session.id and the signed payment", async () => {
+    const { fetch, calls } = fakeFetch((call) => {
+      if (call.url.includes("/complete")) {
+        return jsonResponse(200, { status: "completed", settlement_id: "0xdeadbeef" });
+      }
+      return jsonResponse(200, {
+        id: "resv_777",
+        status: "ready_for_complete",
+        currency: "USD",
+        payment_handlers: { "llc.facet.x402": { pay_to: "0xmerchant", amount: "28490000" } },
+      });
+    });
+    const client = new FacetClient({ terminalUrl: TERMINAL, fetch, kyaToken: "t" });
+
+    let sawSession: string | undefined;
+    const res = await client.checkout({
+      line_items: [{ item: { id: "sku-card" } }, { item: { id: "sku-flowers" } }],
+      authorizePayment: (session) => {
+        // The callback receives the SERVER-created session (pay_to + amount).
+        sawSession = session.id;
+        expect(session.payment_handlers).toBeDefined();
+        return {
+          instruments: [
+            { credential: { type: "x402_authorization", token: `signed-for-${session.id}` } },
+          ],
+        };
+      },
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.url).toContain("/ucp/v1/checkout-sessions");
+    expect(calls[0]!.url).not.toContain("/complete");
+    expect(calls[1]!.url).toContain("/ucp/v1/checkout-sessions/complete");
+    // The created session id is threaded into the complete call's checkout_id...
+    const completeBody = JSON.parse(calls[1]!.body!);
+    expect(completeBody.checkout_id).toBe("resv_777");
+    // ...and the payment the callback produced from THAT session is sent verbatim.
+    expect(completeBody.payment.instruments[0].credential.token).toBe("signed-for-resv_777");
+    expect(sawSession).toBe("resv_777");
+    expect(res.status).toBe("completed");
+    expect(res.settlement_id).toBe("0xdeadbeef");
+  });
+
+  it("default userAgent advertises the 0.4.0 client line", async () => {
+    const { fetch, calls } = fakeFetch(() =>
+      jsonResponse(200, { id: "r", status: "ready_for_complete" }),
+    );
+    const client = new FacetClient({ terminalUrl: TERMINAL, fetch });
+    await client.checkoutCreate({ line_items: [{ item: { id: "sku-1" } }] });
+    expect(calls[0]!.headers["user-agent"]).toBe("@facet-llc/client/0.4.0");
   });
 });

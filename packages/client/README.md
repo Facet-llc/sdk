@@ -7,14 +7,14 @@ Runs on Node 20+, Bun, and Deno. Native `fetch` plus `AbortController` on all th
 ## Install
 
 ```bash
-npm install @facet-llc/client @facet-llc/protocol
+npm install @facet-llc/client @facet-llc/adapter
 # or
-pnpm add @facet-llc/client @facet-llc/protocol
+pnpm add @facet-llc/client @facet-llc/adapter
 # or
-bun add @facet-llc/client @facet-llc/protocol
+bun add @facet-llc/client @facet-llc/adapter
 ```
 
-`@facet-llc/client` declares `@facet-llc/protocol` as a runtime dependency. Package managers pull it in automatically.
+`@facet-llc/client` declares `@facet-llc/adapter` as a runtime dependency. Package managers pull it in automatically.
 
 ## Quick start
 
@@ -138,4 +138,4 @@ await client.search({ query: "sugar" }, { signal: ac.signal });
 
 ## License
 
-Apache-2.0. Same as [`@facet-llc/protocol`](https://www.npmjs.com/package/@facet-llc/protocol). The hosted Terminal service, schema generator, and admin app remain proprietary. The client contract is an open protocol.
+Apache-2.0. Same as [`@facet-llc/adapter`](https://www.npmjs.com/package/@facet-llc/adapter). The hosted Terminal service, schema generator, and admin app remain proprietary. The client contract is an open protocol.

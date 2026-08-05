@@ -25,7 +25,7 @@ import type {
   OriginationVerifierMetadata,
   VerifyAttestationInput,
   VerifyAttestationResult,
-} from "@facet-llc/protocol";
+} from "@facet-llc/adapter";
 import type { CdpClient } from "@coinbase/cdp-sdk";
 import { verifyMessage, type Address, type Hex } from "viem";
 
@@ -339,8 +339,7 @@ export class CoinbaseCdpOriginationVerifier implements FacetOriginationVerifier 
 // ─────────────────────────────────────────────────────────────────────────────
 
 type ParseResult =
-  | { kind: "ok"; envelope: CdpAttestationEnvelope }
-  | { kind: "error"; reason: string };
+  { kind: "ok"; envelope: CdpAttestationEnvelope } | { kind: "error"; reason: string };
 
 function parseEnvelope(raw: string): ParseResult {
   if (typeof raw !== "string" || raw.trim() === "") {

@@ -1,4 +1,4 @@
-# @facet-llc/protocol — changelog
+# @facet-llc/adapter — changelog
 
 All notable changes to this package are documented here. The protocol
 version itself is tracked via the `FACET_PROTOCOL_VERSION` constant in

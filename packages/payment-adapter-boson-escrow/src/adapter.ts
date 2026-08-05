@@ -64,7 +64,7 @@ import type {
   VerifyAuthorityOk,
   WebhookOutcome,
   WebhookRequest,
-} from "@facet-llc/protocol";
+} from "@facet-llc/adapter";
 import {
   createX402bServer,
   decodeXPaymentHeader,
@@ -90,6 +90,7 @@ import {
 import type { UnsignedFullOffer } from "@bosonprotocol/x402-core/eip712";
 import { buildOfferMetadata, type BuiltOfferMetadata, type OfferProductInfo } from "./metadata.ts";
 import { bindingMismatchNativeCode, isBindingMismatchError } from "./binding-error.ts";
+import { validateCancelPayload } from "./redeem-payload.ts";
 
 const PACKAGE_VERSION = "0.1.0";
 
@@ -193,6 +194,18 @@ export interface BosonEscrowAdapterConfig {
   /** Sink for webhook signature rejections (logged with the trace id).
    *  Defaults to a `console.warn` JSON line. */
   readonly webhookRejectionLogger?: WebhookRejectionLogger;
+  /** When true (DEFAULT — secure), `handleWebhook` REFUSES to act on a webhook
+   *  it cannot cryptographically verify: if no `merchant_config.webhook_secret`
+   *  is present it returns UNAUTHORIZED instead of trusting the parsed body.
+   *
+   *  Set FALSE only when the HOST verifies the signature at its own webhook
+   *  route BEFORE delegating with an empty merchant_config (the Facet Terminal
+   *  does exactly this) — in that mode a secret-less webhook is trusted as
+   *  already-verified (the back-compat path). Defaulting to true means a
+   *  third-party host that integrates this package directly and forgets to
+   *  configure a secret (or to verify upstream) cannot be fed forged
+   *  exchange-state webhooks — it fails closed instead. */
+  readonly requireWebhookSignature?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -247,11 +260,11 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
   private readonly subgraphUrl: string | undefined;
   private readonly stores: BosonStores | undefined;
   private readonly exchangeReaderFactory:
-    | ((cfg: BosonMerchantConfig) => ExchangeReader)
-    | undefined;
+    ((cfg: BosonMerchantConfig) => ExchangeReader) | undefined;
   private readonly mode: "development" | "production";
   private readonly now: () => number;
   private readonly logWebhookRejection: WebhookRejectionLogger;
+  private readonly requireWebhookSignature: boolean;
 
   constructor(cfg: BosonEscrowAdapterConfig) {
     this.facilitatorUrl = cfg.facilitatorUrl;
@@ -262,6 +275,9 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
     this.mode = cfg.mode ?? (cfg.subgraphUrl !== undefined ? "production" : "development");
     this.now = cfg.now ?? (() => Date.now());
     this.logWebhookRejection = cfg.webhookRejectionLogger ?? defaultWebhookRejectionLogger;
+    // Secure by default: refuse webhooks we cannot verify unless the host
+    // explicitly opts into the already-verified-upstream path.
+    this.requireWebhookSignature = cfg.requireWebhookSignature ?? true;
 
     // egress_allowlist: only the outbound destinations this adapter
     // touches — the Boson facilitator (meta-tx relay), the Base RPC (the
@@ -280,12 +296,12 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
       // Two-step escrow: reserve = commit (COMMITTED), capture = redeem
       // (REDEEMED). Final RELEASED is surfaced via handleWebhook.
       supports_reserve_capture: true,
-      // A pre-redeem refund maps to a Boson revoke (seller) / cancel (buyer)
-      // meta-tx; the x402-server SDK exposes neither handler, so this rail
-      // cannot programmatically refund today. refund() returns
-      // METHOD_NOT_ALLOWED. Flip to true only when a seller action-signer is
-      // wired (see refund()).
-      supports_refund: false,
+      // A pre-redeem refund maps to a Boson cancel (buyer) / revoke (seller)
+      // meta-tx. x402-server exposes no cancel/revoke handler, so refund()
+      // relays the buyer's boson-cancelVoucher via the FacilitatorClient
+      // directly. BUYER-CANCEL is wired (authority.signed_payload); seller
+      // REVOKE (which needs a founder-gated seller action-signer) is not yet.
+      supports_refund: true,
       // Boson exposes a full dispute lifecycle (raise/resolve/retract/escalate).
       supports_dispute: true,
       networks: ["base", "base-sepolia"],
@@ -406,11 +422,19 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
    *  `withRailMetadata`), or null when it is not a recoverable timing error, no
    *  reader is wired, or the state was never reached within the budget. A reader
    *  throw (seller/asset binding mismatch, hard RPC error) is never masked. */
-  private async reverifyExchangeState(
+  /** Core post-action re-verify: after a 502/STATE_VERIFY_ false-fail (the
+   *  facilitator relays the meta-tx, but the SDK's post-action verify reads a
+   *  LAGGING subgraph before it reflects the new state), poll the on-chain
+   *  ExchangeReader within a budget and, once `landed(snapshot)` holds, return the
+   *  recovery rail_metadata instead of surfacing the false failure. Returns null
+   *  (surface the original error) if the guard doesn't match, no reader is wired,
+   *  the read throws (never mask a hard error), or the budget elapses. Shared by
+   *  commit/redeem (EXCHANGE-state moves) and dispute (DISPUTE sub-state moves). */
+  private async reverifyLanded(
     cfg: BosonMerchantConfig,
     exchangeId: string,
-    expectedUpper: string,
     failed: { readonly status: number; readonly body: HandlerErrorBody },
+    landed: (snapshot: NonNullable<Awaited<ReturnType<ExchangeReader["read"]>>>) => boolean,
   ): Promise<{ readonly rail_metadata: Readonly<Record<string, unknown>> } | null> {
     if (failed.status !== 502 || !failed.body.code.startsWith("STATE_VERIFY_")) return null;
     if (this.exchangeReaderFactory === undefined) return null;
@@ -423,7 +447,7 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
       } catch {
         return null; // binding mismatch / hard RPC error — never mask it
       }
-      if (snapshot !== null && String(snapshot.state).toUpperCase() === expectedUpper) {
+      if (snapshot !== null && landed(snapshot)) {
         const details = (failed.body.details ?? {}) as Record<string, unknown>;
         const txHash = typeof details.txHash === "string" ? details.txHash : "";
         return {
@@ -442,6 +466,22 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
     }
   }
 
+  /** Re-verify the EXCHANGE reached `expectedUpper` on-chain after a 502
+   *  post-action false-fail (commit → COMMITTED, redeem → REDEEMED). */
+  private reverifyExchangeState(
+    cfg: BosonMerchantConfig,
+    exchangeId: string,
+    expectedUpper: string,
+    failed: { readonly status: number; readonly body: HandlerErrorBody },
+  ): Promise<{ readonly rail_metadata: Readonly<Record<string, unknown>> } | null> {
+    return this.reverifyLanded(
+      cfg,
+      exchangeId,
+      failed,
+      (snapshot) => String(snapshot.state).toUpperCase() === expectedUpper,
+    );
+  }
+
   /** Bind the on-chain exchange to THIS merchant before redeem, reading the
    *  snapshot via the configured `ExchangeReader`. Returns an UNAUTHORIZED
    *  error result IFF a snapshot field is known and does NOT match what this
@@ -458,18 +498,44 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
    *    - `exchangeToken` ≠ the merchant asset — defense-in-depth (USDC was also
    *      constrained upstream + at commit).
    *    - `price` ≠ `amount` — the original gate (commit a cheap offer, redeem
-   *      against an expensive reservation).
-   *  All three are never legitimate traffic, so failing closed cannot break a
-   *  real settlement. When a field cannot be read (no reader wired, exchange not
-   *  yet readable, or a hard RPC error) this returns null and lets the existing
-   *  redeem + post-settle verify proceed — tightening a real mismatch without
-   *  newly breaking settlements whose chain state is momentarily unreadable.
-   *  Currency was already constrained to USDC upstream. */
+   *      against an expensive reservation). A snapshot that IS readable but whose
+   *      `price` is missing / non-string also fails CLOSED (escrow_price_
+   *      unverifiable, L1-UCP-BSN-002): once seller + token bind to this merchant
+   *      the exchange is ours, so an unverifiable amount is a refusal, not a pass.
+   *    - `state` ≠ COMMITTED (a deferred-redeem hardening gate): redeem is only
+   *      valid from Committed, so a voucher that moved off Committed on-chain
+   *      (cancelled / revoked / already redeemed / window elapsed) is refused
+   *      locally (escrow_state_not_committed) instead of relaying a redeem the
+   *      Diamond would revert. Funds are never at risk either way.
+   *  None of these is ever legitimate traffic, so failing closed cannot break a
+   *  real settlement. When the whole snapshot cannot be read (no reader wired,
+   *  exchange not yet readable, or a hard RPC error) this returns null and lets the
+   *  existing redeem + post-settle verify proceed, tightening a real mismatch
+   *  without newly breaking settlements whose chain state is momentarily
+   *  unreadable. Currency was already constrained to USDC upstream. */
   private async assertExchangeBinding(
     cfg: BosonMerchantConfig,
     exchangeId: string,
     amount: CaptureInput["amount"],
+    opts?: { readonly failClosedOnUnreadable?: boolean },
   ): Promise<RailAdapterResult<never> | null> {
+    // The three "unreadable escrow" branches below FAIL OPEN (return null → the
+    // caller proceeds) for capture/redeem, where a transient read miss must not
+    // block a settlement the merchant is OWED. A REFUND moves money OUT of the
+    // escrow, so an unverifiable escrow must NOT be actioned: refund() passes
+    // failClosedOnUnreadable, flipping these to a retryable refusal (the refund
+    // simply retries once the chain read recovers — harmless to defer).
+    const unreadable = (): RailAdapterResult<never> | null =>
+      opts?.failClosedOnUnreadable === true
+        ? makeError(
+            "SETTLEMENT_FAILED",
+            "cannot verify the escrow on-chain before refunding (reader unavailable); " +
+              "retry once the chain read succeeds",
+            true,
+            "escrow_unreadable",
+          )
+        : null;
+
     if (amount.currency !== "USDC") {
       return errResult(
         "INVALID_REQUEST",
@@ -482,7 +548,7 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
         "amount.amount must be a positive integer (USDC atomic units)",
       );
     }
-    if (this.exchangeReaderFactory === undefined) return null;
+    if (this.exchangeReaderFactory === undefined) return unreadable();
 
     let snapshot: Awaited<ReturnType<ExchangeReader["read"]>>;
     try {
@@ -500,9 +566,9 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
       if (isBindingMismatchError(e)) {
         return makeError("UNAUTHORIZED", e.message, false, bindingMismatchNativeCode(e.kind));
       }
-      return null;
+      return unreadable();
     }
-    if (snapshot === null) return null;
+    if (snapshot === null) return unreadable();
 
     // SELLER BINDING (x402B #115 review) — the on-chain seller must be
     // this merchant's offer signer. Without it, a buyer could have the server
@@ -535,8 +601,22 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
       );
     }
 
+    // PRICE BINDING: fail CLOSED (L1-UCP-BSN-002). The seller + token gates above
+    // have already passed, so this snapshot is genuinely this merchant's exchange;
+    // a missing / non-string on-chain price is then an UNVERIFIABLE amount, not a
+    // transient read miss. Redeeming would skip the price binding (the "commit a
+    // cheap offer, redeem against an expensive reservation" defense), so we refuse
+    // with a non-retryable UNAUTHORIZED rather than passing (the prior fail-open).
     const escrowedPrice = typeof snapshot.price === "string" ? snapshot.price : null;
-    if (escrowedPrice === null) return null;
+    if (escrowedPrice === null) {
+      return makeError(
+        "UNAUTHORIZED",
+        "escrowed on-chain price is missing or not a string; refusing to redeem an escrow whose " +
+          "price cannot be bound to this reservation",
+        false,
+        "escrow_price_unverifiable",
+      );
+    }
 
     if (escrowedPrice !== String(amount.amount)) {
       return makeError(
@@ -545,6 +625,31 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
           "refusing to redeem an escrow whose on-chain price was not bound to this reservation",
         false,
         "escrow_amount_mismatch",
+      );
+    }
+
+    // STATE BINDING (deferred-redeem hardening). Redeem is valid ONLY from the
+    // COMMITTED state. Between the buyer pre-signing the redeem (deferred-redeem
+    // stores the signed payload) and the fulfillment webhook later firing it, the
+    // exchange can move OFF Committed on-chain (buyer cancelled, seller revoked,
+    // the redeem window elapsed, or it already redeemed). The Boson Diamond's
+    // redeemVoucher reverts for a non-Committed exchange, so funds are never at
+    // risk. But that revert is a wasted facilitator-gas relay whose failure is
+    // only logged, and nothing local stops it. Gate it here and FAIL CLOSED so we
+    // never relay a doomed redeem and never advance a Facet order on an exchange
+    // that is no longer redeemable. FAIL OPEN (null) only when the state is
+    // unreadable, matching the seller/token gates above (price instead fails
+    // closed on an unverifiable value): a transient read miss must not block a
+    // real settlement. (Boson DD review, 2026-07-06: assertExchangeBinding gated
+    // seller/token/price but never state.)
+    const escrowedState = typeof snapshot.state === "string" ? snapshot.state.toUpperCase() : null;
+    if (escrowedState !== null && escrowedState !== "COMMITTED") {
+      return makeError(
+        "UNAUTHORIZED",
+        `escrowed exchange state (${snapshot.state}) is not COMMITTED; refusing to redeem an ` +
+          "exchange that is no longer redeemable",
+        false,
+        "escrow_state_not_committed",
       );
     }
     return null;
@@ -730,14 +835,106 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
   // is wired (founder-gated), the adapter surfaces this honestly rather
   // than silently no-op'ing a money movement.
 
-  async refund(_input: RefundInput): Promise<RailAdapterResult<RefundOk>> {
+  async refund(input: RefundInput): Promise<RailAdapterResult<RefundOk>> {
+    const cfg = readMerchantConfig(input.merchant_config);
+    if (cfg.kind === "error") return cfg.error;
+
+    const exchangeId = input.settlement_id;
+
+    // The buyer's pre-signed boson-cancelVoucher meta-tx rides in `authority`
+    // (a cancel can only be signed by the voucher holder). Seller-initiated
+    // revoke is a separate, founder-gated leg not wired here (v1 = buyer-cancel).
+    const signedPayload = readHex(input.authority ?? null, "signed_payload");
+    if (signedPayload === null) {
+      return errResult(
+        "INVALID_REQUEST",
+        "Boson refund requires authority.signed_payload (the buyer-signed boson-cancelVoucher meta-tx)",
+      );
+    }
+
+    // 1) INTEGRITY (offline): a well-formed cancelVoucher for EXACTLY this exchange.
+    const valid = await validateCancelPayload({
+      signedPayload,
+      exchangeId,
+      chainId: cfg.value.chainId,
+      verifyingContract: cfg.value.escrow,
+    });
+    if (!valid.ok) {
+      return errResult(
+        "INVALID_REQUEST",
+        `refund payload rejected (${valid.reason}): ${valid.message}`,
+      );
+    }
+
+    // 2) AUTHORIZATION + BINDING: this exchange is THIS merchant's (seller/token
+    //    bound), on-chain COMMITTED, and its escrowed price == the refund amount.
+    //    Boson cancel is FULL-only, so a partial refund amount is refused by the
+    //    price binding (escrow_amount_mismatch). Same proven gate as redeem, but
+    //    with failClosedOnUnreadable: a refund moves money OUT of the escrow, so an
+    //    unverifiable escrow is REFUSED (retryable) rather than relayed unbound —
+    //    unlike capture/redeem, which fail open so a transient read miss cannot
+    //    block a settlement the merchant is owed.
+    const bindingGate = await this.assertExchangeBinding(cfg.value, exchangeId, input.amount, {
+      failClosedOnUnreadable: true,
+    });
+    if (bindingGate !== null) return bindingGate;
+
+    // 3) RELAY the gasless cancel. x402-server 0.3.1 exposes no cancel handler, so
+    //    call the FacilitatorClient directly (the same egress-allowlisted client the
+    //    built-in handlers use). Its response is authoritative — it submits the
+    //    on-chain tx and reports the new state — so there is no subgraph post-verify
+    //    to lag (unlike the dispute path).
+    const built = this.buildServer(cfg.value);
+    if (built.kind === "error") return built.error;
+
+    let relay;
+    try {
+      relay = await built.server.facilitator.performAction({
+        network: cfg.value.network,
+        escrowAddress: cfg.value.escrow,
+        exchangeId,
+        action: "boson-cancelVoucher",
+        signedPayload,
+      });
+    } catch (e) {
+      // Network / timeout / 5xx from the facilitator — transient, retryable.
+      return makeError(
+        "SETTLEMENT_FAILED",
+        `Boson cancel relay failed: ${asMessage(e)}`,
+        true,
+        null,
+      );
+    }
+    if (!relay.ok) {
+      // A 400 known-failure branch (UNSUPPORTED_ACTION, SIMULATION_REVERT, …). The
+      // payload was validated + bound locally, so re-relaying the same bytes will
+      // not help — non-retryable.
+      return makeError(
+        "SETTLEMENT_FAILED",
+        `Boson cancel rejected by facilitator (${relay.code}): ${relay.reason}`,
+        false,
+        relay.code,
+      );
+    }
+
+    const newExchangeState =
+      "newExchangeState" in relay && typeof relay.newExchangeState === "string"
+        ? relay.newExchangeState
+        : "CANCELLED";
     return {
-      kind: "error",
-      code: "METHOD_NOT_ALLOWED",
-      message:
-        "Boson pre-redeem refund requires a buyer-signed cancel or a seller-signed revoke meta-tx; " +
-        "the offer-only seller signer cannot authorise it. Wire a seller action-signer to enable revoke.",
-      retryable: false,
+      kind: "ok",
+      value: {
+        refund_id: exchangeId,
+        refunded_at: new Date(this.now()).toISOString(),
+        rail_metadata: {
+          escrow_state: {
+            exchange_id: exchangeId,
+            exchange_state: newExchangeState,
+            dispute_state: null,
+          },
+          tx_hash: relay.txHash,
+        },
+      },
     };
   }
 
@@ -790,11 +987,36 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
       );
     }
 
-    if (!result.ok) return mapHandlerError(result.body, result.status, `dispute_${kind}`);
+    if (!result.ok) {
+      // The dispute meta-tx lands but the SDK's post-action verify may read a
+      // LAGGING subgraph before it reflects the new state — a 502/STATE_VERIFY_
+      // false-fail even though the transition already happened on-chain (proven on
+      // mainnet 2026-07-17: raise + resolve both 502'd yet landed). Re-verify the
+      // expected on-chain state ourselves before surfacing the false fail, mirroring
+      // redeem/commit. `raise` moves the EXCHANGE to DISPUTED; `resolve`/`retract`/
+      // `escalate` move the DISPUTE sub-state (the exchange stays DISPUTED), so we
+      // match the right field per kind (see `disputeLanded`).
+      const recovered = await this.reverifyLanded(cfg.value, exchangeId, result, (snapshot) =>
+        disputeLanded(kind, snapshot),
+      );
+      if (recovered !== null) {
+        return {
+          kind: "ok",
+          value: { dispute_id: exchangeId, status: disputeStatusFor(kind), ...recovered },
+        };
+      }
+      return mapHandlerError(result.body, result.status, `dispute_${kind}`);
+    }
 
+    // Surface the tx hash + escrow_state as rail_metadata (as commit/redeem do), so
+    // the dispatch envelope + signed receipt carry the dispute's on-chain evidence.
     return {
       kind: "ok",
-      value: { dispute_id: exchangeId, status: disputeStatusFor(kind) },
+      value: withRailMetadata(
+        { dispute_id: exchangeId, status: disputeStatusFor(kind) },
+        result.body.nextActions,
+        result.body.txHash,
+      ),
     };
   }
 
@@ -943,8 +1165,12 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
   // adapter verifies an HMAC-SHA256 over the raw body (accepting the current
   // OR the previous secret, so a secret rotates with no downtime) and rejects
   // anything that does not match — every rejection is logged with the trace
-  // id. When no secret is configured the adapter trusts the parsed body
-  // (back-compat for a host that verifies at its own webhook route).
+  // id. When NO secret is configured the behaviour depends on
+  // `requireWebhookSignature` (constructor): the default (true) REFUSES the
+  // webhook UNAUTHORIZED (fail closed — secure for third-party reuse); set
+  // false (the Facet Terminal does) only when the host already verified the
+  // signature at its own route and delegates with an empty merchant_config, in
+  // which case the parsed body is trusted as already-verified.
 
   async handleWebhook(input: WebhookRequest): Promise<RailAdapterResult<WebhookOutcome>> {
     // Lenient by default: when no webhook secret is configured the adapter
@@ -994,6 +1220,23 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
           "signature_verification_failed",
         );
       }
+    } else if (this.requireWebhookSignature) {
+      // No webhook secret is configured AND we are in the secure-default mode:
+      // we have no key to verify against, so we REFUSE to act on the body rather
+      // than trust an unauthenticated webhook. A host that verifies the signature
+      // at its OWN webhook route delegates with an empty merchant_config and sets
+      // requireWebhookSignature:false to opt into the lenient path below.
+      this.rejectWebhook(
+        input,
+        "missing_signature_header",
+        "no webhook_secret configured and requireWebhookSignature is set — refusing to trust an unverified webhook",
+      );
+      return makeError(
+        "UNAUTHORIZED",
+        "Boson webhook cannot be verified: no webhook_secret configured (requireWebhookSignature is set)",
+        false,
+        "signature_verification_failed",
+      );
     }
 
     return { kind: "ok", value: mapWebhookOutcome(input, this.now()) };
@@ -1523,6 +1766,32 @@ function resolveDisputeKind(input: DisputeInput): DisputeKind {
   }
   // action "challenge" → open/raise the dispute; "accept" → retract it.
   return input.action === "challenge" ? "raise" : "retract";
+}
+
+/** Whether the on-chain snapshot shows the given dispute sub-action LANDED — used to
+ *  recover a 502/STATE_VERIFY_ subgraph-lag false-fail. `raise` moves the EXCHANGE to
+ *  DISPUTED; `resolve`/`retract`/`escalate` move the DISPUTE sub-state (the exchange
+ *  stays DISPUTED), so each matches the field that actually changes. Comparisons are
+ *  case-insensitive (the reader emits SDK enum values like "Resolved"/"RESOLVED"). */
+function disputeLanded(
+  kind: DisputeKind,
+  snapshot: NonNullable<Awaited<ReturnType<ExchangeReader["read"]>>>,
+): boolean {
+  const exchangeUpper = String(snapshot.state).toUpperCase();
+  const disputeUpper =
+    snapshot.disputeState !== undefined && snapshot.disputeState !== null
+      ? String(snapshot.disputeState).toUpperCase()
+      : null;
+  switch (kind) {
+    case "raise":
+      return exchangeUpper === "DISPUTED";
+    case "resolve":
+      return disputeUpper === "RESOLVED";
+    case "retract":
+      return disputeUpper === "RETRACTED";
+    case "escalate":
+      return disputeUpper === "ESCALATED";
+  }
 }
 
 function disputeStatusFor(kind: DisputeKind): DisputeOk["status"] {

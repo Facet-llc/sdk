@@ -1,6 +1,6 @@
 {
   "name": "@facet-llc/payment-adapter-stripe",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": false,
   "type": "module",
   "description": "Facet Terminal payment-rail adapter for Stripe (Cards, ACH, wallets). Implements FacetPaymentRailAdapter on top of the official stripe npm package. PaymentIntents with reserve-capture, refunds, disputes, and webhook signature verification.",
@@ -39,13 +39,13 @@
     }
   },
   "dependencies": {
-    "@facet-llc/protocol": "workspace:*",
-    "stripe": "17.7.0"
+    "@facet-llc/adapter": "workspace:*",
+    "stripe": "22.2.2"
   },
   "devDependencies": {
     "tsup": "^8.5.0",
     "typescript": "^5.7.2",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.10"
   },
   "homepage": "https://github.com/facet-llc/sdk/tree/main/packages/payment-adapter-stripe",
   "bugs": {

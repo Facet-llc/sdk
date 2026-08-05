@@ -1,6 +1,6 @@
 # @facet-llc/payment-adapter-stripe
 
-Facet Terminal payment-rail adapter for the Stripe rail (cards, ACH, wallets). Implements `FacetPaymentRailAdapter` from [`@facet-llc/protocol`](https://www.npmjs.com/package/@facet-llc/protocol) on top of the official [`stripe`](https://www.npmjs.com/package/stripe) npm package.
+Facet Terminal payment-rail adapter for the Stripe rail (cards, ACH, wallets). Implements `FacetPaymentRailAdapter` from [`@facet-llc/adapter`](https://www.npmjs.com/package/@facet-llc/adapter) on top of the official [`stripe`](https://www.npmjs.com/package/stripe) npm package.
 
 ## What this is
 

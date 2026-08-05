@@ -1,6 +1,6 @@
 # @facet-llc/origination-coinbase-cdp
 
-Facet Terminal origination verifier for Coinbase Developer Platform (CDP) AgentKit-provisioned agents. Implements `FacetOriginationVerifier` from [`@facet-llc/protocol`](https://www.npmjs.com/package/@facet-llc/protocol).
+Facet Terminal origination verifier for Coinbase Developer Platform (CDP) AgentKit-provisioned agents. Implements `FacetOriginationVerifier` from [`@facet-llc/adapter`](https://www.npmjs.com/package/@facet-llc/adapter).
 
 ## What this is
 

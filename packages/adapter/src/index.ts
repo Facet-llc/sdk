@@ -16,11 +16,14 @@ export {
   HEADER_WEBHOOK_DELIVERY_ID,
   HEADER_WEBHOOK_EVENT,
   HEADER_WEBHOOK_SIGNATURE,
+  MCP_LATEST_VERSION,
   MCP_PROTOCOL_VERSION,
+  MCP_SUPPORTED_VERSIONS,
   PROOF_KINDS,
   WEBHOOK_EVENTS,
 } from "./terminal-types.ts";
 export type {
+  BuyerProtectionBonded,
   CalendlyWebhookAckConfirmed,
   CalendlyWebhookAckIgnored,
   CalendlyWebhookAckNoMatch,
@@ -37,6 +40,15 @@ export type {
   CatalogChangeKind,
   CatalogChangesSinceRequest,
   CatalogChangesSinceResponse,
+  CheckoutCompleteRequest,
+  CheckoutCompleteResponse,
+  CheckoutCreateRequest,
+  CheckoutCreateResponse,
+  CheckoutCredential,
+  CheckoutLineItem,
+  CheckoutOrderRef,
+  CheckoutPayment,
+  CheckoutPaymentInstrument,
   ComplianceCertification,
   ComplianceDocument,
   ComplianceOverride,
@@ -52,6 +64,8 @@ export type {
   DeleteDocumentResponse,
   DeleteWebhookRequest,
   DeleteWebhookResponse,
+  DisputeRuling,
+  DisputeRulingOutcome,
   Document,
   DocumentKind,
   EscalationStatus,
@@ -117,6 +131,7 @@ export type {
   PricingTier,
   Product,
   ProductCompliance,
+  PromoSlotsResponse,
   ProofKind,
   PurchaseLicenseRequest,
   PurchaseLicenseResponse,
@@ -136,6 +151,11 @@ export type {
   ReconcileSettlementsRequest,
   ReconcileSettlementsResponse,
   Refund,
+  RefundAdjudicateRequest,
+  RefundDecideRequest,
+  RefundEscalateRequest,
+  RefundEscalateResponse,
+  RefundLineItem,
   RefundRequestRequest,
   RefundRequestResponse,
   RefundStatus,
@@ -158,6 +178,7 @@ export type {
   SessionExtendRequest,
   SessionExtendResponse,
   SessionSummary,
+  OrderAttributes,
   Settlement,
   SettlementState,
   SettleRequest,
@@ -306,6 +327,25 @@ export type {
   RelatedEdge,
   RelatedNode,
 } from "./graph-types.ts";
+
+export type {
+  DiscoverEdge,
+  DiscoverHandoff,
+  DiscoverNear,
+  DiscoverReputation,
+  DiscoverRequest,
+  DiscoverResponse,
+  DiscoverResult,
+} from "./discover-types.ts";
+
+export {
+  FACET_DISCOVER_TOOL,
+  FACET_GET_MERCHANT_TOOL,
+  FACET_MCP_TOOLS,
+  FACET_QUOTE_TOOL,
+  FACET_SEARCH_PRODUCTS_TOOL,
+} from "./mcp-tools.ts";
+export type { FacetMcpToolDefinition } from "./mcp-tools.ts";
 
 export type {
   CaptureDispatch,

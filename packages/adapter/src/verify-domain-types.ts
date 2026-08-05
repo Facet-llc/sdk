@@ -1,4 +1,4 @@
-// @facet-llc/protocol — Domain verification types.
+// @facet-llc/adapter — Domain verification types.
 //
 // Wire-contract types for domain verification, authored in the protocol
 // package. Single Terminal route:

@@ -8,8 +8,8 @@ export default defineConfig({
   sourcemap: false,
   target: "es2022",
   treeshake: true,
-  // `@facet-llc/protocol` is a runtime peer — ships alongside as a separate
+  // `@facet-llc/adapter` is a runtime peer — ships alongside as a separate
   // package on npm, so tsup must not bundle its source into client's
   // dist/index.js.
-  external: ["@facet-llc/protocol"],
+  external: ["@facet-llc/adapter"],
 });

@@ -1,4 +1,4 @@
-// @facet-llc/protocol — Booking primitive wire-contract types.
+// @facet-llc/adapter — Booking primitive wire-contract types.
 //
 // Wire-contract types for the booking primitive, authored in the
 // protocol package so SDK consumers + the OpenAPI generator can import

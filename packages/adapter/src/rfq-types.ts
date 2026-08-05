@@ -1,4 +1,4 @@
-// @facet-llc/protocol — RFQ primitive wire-contract types.
+// @facet-llc/adapter — RFQ primitive wire-contract types.
 //
 // Wire-contract types for the RFQ primitive, authored in the protocol
 // package as the canonical source.
@@ -21,12 +21,7 @@
  *  being strictly enforced end-to-end; treat unknown values
  *  defensively. */
 export type RfqRequestStatus =
-  | "open"
-  | "quoted"
-  | "countered"
-  | "accepted"
-  | "cancelled"
-  | "expired";
+  "open" | "quoted" | "countered" | "accepted" | "cancelled" | "expired";
 
 /** Status of an individual quote within an RFQ. */
 export type RfqQuoteStatus = "live" | "accepted" | "rejected" | "expired" | "superseded";

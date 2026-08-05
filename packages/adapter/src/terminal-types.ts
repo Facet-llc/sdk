@@ -4,7 +4,7 @@
 // shapes that flow between agents and a Facet Terminal. Consumed by:
 //   - the Facet Terminal — server-side handler definitions
 //   - the client SDK     — request builders and response parsers
-//   - third-party SDKs   — anyone importing @facet-llc/protocol
+//   - third-party SDKs   — anyone importing @facet-llc/adapter
 //
 // Protocol version tracked by `FACET_PROTOCOL_VERSION` below. Breaking
 // changes bump the major segment; backwards-compatible additions bump the
@@ -17,7 +17,22 @@
 // stripe-types, verify-domain-types) plus supplementary route types
 // appended below. No existing exports changed.
 export const FACET_PROTOCOL_VERSION = "0.2.0";
-export const MCP_PROTOCOL_VERSION = "2025-06-18";
+
+// MCP protocol-version support for the Terminal's /ucp/mcp endpoint. That server
+// is DUAL-ERA: it implements the 2026-07-28 stateless revision AND still serves
+// 2025-06-18 clients through the 12-month deprecation window. MCP_LATEST_VERSION
+// is what a version-less caller and the agents.txt MCP-Protocol line advertise;
+// MCP_SUPPORTED_VERSIONS is the set server/discover returns and the per-request
+// negotiator accepts (newest first). MCP_PROTOCOL_VERSION stays exported as an
+// alias to the latest for existing importers.
+//
+// NOTE: this is the LIVE Terminal's version. The starter-kit emitter keeps its
+// OWN copy (packages/schema-generator-core/src/emit.ts), deliberately pinned to
+// 2025-06-18 because generated kits are minimal and do not implement the
+// stateless negotiation, so they must not claim a compliance level they lack.
+export const MCP_LATEST_VERSION = "2026-07-28";
+export const MCP_SUPPORTED_VERSIONS: readonly string[] = [MCP_LATEST_VERSION, "2025-06-18"];
+export const MCP_PROTOCOL_VERSION = MCP_LATEST_VERSION;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Error envelope
@@ -153,13 +168,53 @@ export interface CapabilitiesResponse {
     readonly required_for_physical: boolean;
     readonly modes: readonly ("inline" | "ref" | "ciphertext")[];
   };
+  // UCP checkout posture, present only when the operator enables UCP
+  // (FACET_UCP_ENABLED). Advertises the checkout-session surface as the
+  // default agent entrypoint; the four verbs stay the primitive it composes.
+  // Absent on a UCP-disabled terminal, so the payload is byte-identical there.
+  readonly checkout?: {
+    readonly enabled: boolean;
+    readonly protocol: "ucp";
+    readonly entrypoint: string;
+    readonly complete: string;
+    readonly redeem: string;
+  };
   readonly rate_limits: {
     readonly default: { readonly requests_per_hour: number };
   };
 }
 
+// Bonded (Tier 2) buyer-protection posture, advertised on /v1/terms,
+// /integrations.json, and agents.txt when a merchant has a funded bond
+// account in the Facet buyer-protection bond contract. DISCOVERY-ONLY: this
+// advertises a substantiated on-chain posture, it moves no money. Every field
+// is backed by a live `getBond(merchant)` read at request time. A site is
+// only advertised as bonded when its bond balance is greater than zero, and
+// `coverage_available` is the live slashable-minus-locked amount. Absent
+// means the merchant is not bonded (or the bond rail is not configured / the
+// read failed), and the whole block is omitted rather than under- or
+// over-claimed.
+export interface BuyerProtectionBonded {
+  // The tier label. Only "bonded" today; a discriminant for future tiers.
+  readonly tier: "bonded";
+  // The Facet buyer-protection bond contract address (one deployed contract;
+  // each merchant has an account inside it keyed by their payout address).
+  readonly bond_address: string;
+  // eip155:<chainId> network the bond contract lives on (e.g. eip155:8453).
+  readonly network: string;
+  // Live available coverage = bond balance minus the amount locked for open
+  // disputes, as a decimal USDC string (the bonded asset is USDC). Never
+  // negative; "0" when the full balance is currently locked.
+  readonly coverage_available: string;
+}
+
 export interface TermsResponse {
   readonly facet: string;
+  // Bonded buyer-protection posture, present only when this site has a funded
+  // bond account (see BuyerProtectionBonded). Absent on every terminal where
+  // the bond rail is unconfigured or the merchant is unbonded, so the terms
+  // payload is byte-identical to before wherever nothing is bonded.
+  readonly buyer_protection?: BuyerProtectionBonded;
   readonly pricing: {
     readonly query_usdc: number;
     readonly transactional_usdc: number;
@@ -305,6 +360,18 @@ export interface QuoteRequest {
   // The conversion is same-family only (mass↔mass, volume↔volume);
   // cross-family (e.g. lb → fl-oz) returns INVALID_REQUEST.
   readonly qty_in_uom?: QuoteAmountInUom;
+  // Multi-line cart (additive). When present, the quote prices EVERY line
+  // (DISTINCT product_ids, server-derived per-line from the catalog) and returns
+  // ONE summed subtotal, one shipping, and tax on the summed goods, sealing every
+  // line into the quote_token. The scalar `product_id` stays REQUIRED and names
+  // the first line for back-compat; a caller that sends only the scalar keeps the
+  // legacy single-line behavior. One order-level `fulfillment` covers the whole
+  // cart. Each entry carries its own `qty` OR `qty_in_uom`, never both.
+  readonly line_items?: readonly {
+    readonly product_id: string;
+    readonly qty?: number;
+    readonly qty_in_uom?: QuoteAmountInUom;
+  }[];
   // F&B allergen-avoidance list. Quote fails with `ALLERGEN_CONFLICT`
   // if the product's declared allergens intersect (case-insensitive,
   // after underscore/hyphen/space normalization). Agents use this to
@@ -324,7 +391,13 @@ export interface QuoteResponse {
   readonly product_id: string;
   readonly qty: number;
   readonly unit_price: number;
+  // Summed goods subtotal across every line (== unit_price * qty for a single
+  // line). For a multi-line cart it is the sum of the per-line subtotals.
   readonly subtotal: number;
+  // The priced cart. Present with more than one entry only for a multi-line
+  // quote; a single-line quote returns a one-element array (or omits it for
+  // legacy callers that read the scalar fields). Every price is server-derived.
+  readonly line_items?: readonly OrderLineItem[];
   readonly currency: string;
   readonly expires_at: string; // ISO 8601
   // Landed-cost breakdown for a physical SKU, computed against the bound
@@ -367,6 +440,12 @@ export interface ReserveResponse {
   readonly status: "reserved";
   readonly expires_at: string;
   readonly kya_charge_url: string | null;
+  // Present ONLY on a stripe_deposit settlement-venue site: the per-order Stripe
+  // deposit address the agent must pay the x402 (ERC-3009) to for THIS reservation,
+  // instead of the site's statically advertised payTo. A per-order address cannot be
+  // advertised statically, so it rides here. Absent for a normal on-chain site (the
+  // payTo comes from discovery), which is why it is optional and additive.
+  readonly pay_to?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -739,8 +818,21 @@ export interface Order {
   readonly shipments?: readonly Shipment[];
 }
 
+// Buyer-supplied, agent-passable order attributes, threaded from settle into
+// the merchant order (gift_message → order note; delivery_date + occasion →
+// order meta). All optional; NONE participate in pricing — the charged amount
+// is always derived server-side from the reservation.
+export interface OrderAttributes {
+  readonly gift_message?: string;
+  readonly delivery_date?: string; // ISO date, YYYY-MM-DD
+  readonly occasion?: string;
+}
+
 export interface SettleRequest {
   readonly reservation_id: string;
+  // Optional buyer-supplied order attributes (gift message, delivery date,
+  // occasion). Carried into the merchant order; never read for pricing.
+  readonly order_attributes?: OrderAttributes;
   // Optional KYAPay `charge` proof. When provided, the Terminal MAY verify
   // it against the calling agent + reservation total; when absent, dev-mode
   // synthesizes a placeholder charge id. Real KYAPay integration replaces
@@ -761,11 +853,90 @@ export interface SettleRequest {
   // SECURITY: the charge AMOUNT is NEVER read from this field (or anywhere
   // in the settle body) — it is derived server-side from the reservation /
   // order. This field only carries the cryptographic authorization, never
-  // the price. Absent → the Terminal keeps the dev-synth charge-id path.
+  // the price.
+  // REQUIRED on any Terminal that has a payment rail configured, which is
+  // every production deployment: such a Terminal REFUSES a settle that omits
+  // this field (INVALID_REQUEST), and a `kya_charge_token` is NOT a substitute
+  // (it is an unverified opaque string and was never a settlement proof).
+  // Absent only on a Terminal with no rail wired (dev/test harnesses), which
+  // keeps the dev-synth charge-id path.
   readonly authority?: Record<string, unknown>;
 }
 
 export type SettleResponse = Order;
+
+// UCP checkout: POST /ucp/v1/checkout-sessions (create) then
+// POST /ucp/v1/checkout-sessions/complete. This is the agent-facing checkout
+// envelope; the four-verb primitives (quote/reserve/settle) still power
+// settlement underneath it. v1 reserves a cart of DISTINCT server-priced line
+// items and advertises the llc.facet.x402 requirements; every price is derived
+// server-side from the merchant catalog, never from the request body.
+export interface CheckoutLineItem {
+  readonly item: { readonly id: string };
+  readonly quantity?: number;
+}
+
+export interface CheckoutCreateRequest {
+  readonly line_items: readonly CheckoutLineItem[];
+  // Optional UCP fulfillment. When it carries a shipping method with a
+  // destination, the session is priced LANDED (goods plus shipping plus tax).
+  // Open-shaped server-side (additionalProperties), so the SDK passes it through.
+  readonly fulfillment?: Record<string, unknown>;
+}
+
+export interface CheckoutCreateResponse {
+  // The checkout session id (the Terminal reservation id).
+  readonly id: string;
+  // Checkout status, e.g. "ready_for_complete".
+  readonly status: string;
+  // ISO 4217 currency of the priced line items.
+  readonly currency?: string;
+  // Server-resolved payment requirements keyed by handler id (e.g.
+  // "llc.facet.x402"): network, USDC asset, pay_to, and the server-derived
+  // amount. The buyer builds the payment instrument from this, never the body.
+  readonly payment_handlers?: Record<string, unknown>;
+}
+
+// One entry in a checkout payment: either an x402_authorization (with `token`)
+// or a boson_commit_authorization (with `x_payment` plus the seller-signed
+// `requirements` echoed from CREATE). Shapes are rail-specific; the amount is
+// NEVER read from here, it is re-derived server-side from the reservation.
+export interface CheckoutCredential {
+  readonly type: string;
+  readonly token?: string;
+  readonly x_payment?: string;
+  readonly requirements?: unknown;
+}
+
+export interface CheckoutPaymentInstrument {
+  readonly credential: CheckoutCredential;
+}
+
+export interface CheckoutPayment {
+  readonly instruments: readonly CheckoutPaymentInstrument[];
+}
+
+export interface CheckoutCompleteRequest {
+  // OPTIONAL when the /ucp/v1/checkout-sessions/{id}/complete path form is used
+  // (the id comes from the path); required on the legacy body form.
+  readonly checkout_id?: string;
+  readonly payment: CheckoutPayment;
+}
+
+export interface CheckoutOrderRef {
+  readonly id: string;
+  readonly permalink_url?: string;
+}
+
+export interface CheckoutCompleteResponse {
+  // Completion status, e.g. "completed".
+  readonly status: string;
+  readonly order?: CheckoutOrderRef;
+  // The rail-native settlement id (the x402 on-chain tx hash), when settled.
+  readonly settlement_id?: string;
+  // ISO 8601 settlement timestamp, when available.
+  readonly settled_at?: string;
+}
 
 export interface GetOrderRequest {
   readonly order_id: string;
@@ -819,7 +990,23 @@ export type CancelOrderResponse = Order;
 // that — so the tool is a state machine, not a ledger.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type RefundStatus = "requested" | "approved" | "rejected" | "fulfilled";
+export type RefundStatus =
+  | "requested"
+  | "approved"
+  | "rejected"
+  | "fulfilled"
+  // 3-A dispute resolver (money-inert terminal states):
+  | "escalated"
+  | "adjudicated";
+
+/** One line of a partial-refund selection: refund `qty` units of the ordered
+ *  `product_id`. A positive integer qty, at most the ordered qty. The taxed
+ *  amount is DERIVED server-side from the merchant order at approval time; the
+ *  selection never carries an amount, and the agent never names a destination. */
+export interface RefundLineItem {
+  readonly product_id: string;
+  readonly qty: number;
+}
 
 export interface Refund {
   readonly refund_id: string;
@@ -829,14 +1016,102 @@ export interface Refund {
   readonly decision: string | null;
   readonly created_at: string;
   readonly resolved_at: string | null;
+  /** On-chain send-back tx hash once the refund is fulfilled; null until then. */
+  readonly settlement_ref: string | null;
+  /** True when the agent presented a valid signed settlement receipt for the order. */
+  readonly receipt_verified: boolean;
+  /** The partial-refund line selection, once one is set (advisory at request, the
+   *  merchant-authoritative one at decide). null = a full-order refund. */
+  readonly refund_line_items?: readonly RefundLineItem[] | null;
+  /** The derived partial amount in cents, persisted at approval; null until a
+   *  partial is approved (and always null for a full-order refund). */
+  readonly amount_minor?: number | null;
 }
 
 export interface RefundRequestRequest {
   readonly order_id: string;
   readonly reason: string;
+  /** Optional PARTIAL selection: refund only these [{product_id, qty}] lines
+   *  instead of the whole order. Advisory at request time (the merchant is
+   *  authoritative and may adjust it at decide); server-validated against the
+   *  order (each product_id ordered, qty a positive integer at most the ordered
+   *  qty). Omitted = a full-order refund (the unchanged behaviour). */
+  readonly refund_line_items?: readonly RefundLineItem[];
+  /** Optional Ed25519-signed settlement receipt (the signed settle response the
+   *  agent received). When valid and bound to this order, sets receipt_verified. */
+  readonly receipt?: {
+    readonly body: string;
+    readonly signature: string;
+    readonly trace_id: string;
+    readonly path?: string;
+  };
 }
 
 export type RefundRequestResponse = Refund;
+
+/** POST /v1/refund_decide body: a merchant/owner approve or reject of an agent
+ *  refund ticket. site_id is derived from the ticket, never the body. On approve
+ *  the merchant MAY carry a partial `refund_line_items` selection that overrides
+ *  the agent's; omitted keeps whatever the ticket already carries. */
+export interface RefundDecideRequest {
+  readonly refund_id: string;
+  readonly decision: "approved" | "rejected";
+  readonly note?: string;
+  readonly refund_line_items?: readonly RefundLineItem[];
+}
+
+// Dispute resolver (3-A): escalate / adjudicate. MONEY-INERT: a rejected refund
+// can be escalated by its own agent, and a neutral Facet operator adjudicates on
+// the signed, reconstructable audit trail. Enforcement is reputation only; no
+// funds ever move (buyer make-whole is deferred to the bond, Tier 2).
+
+/** POST /v1/refund_escalate: the disputing agent escalates its own REJECTED
+ *  refund ticket for Facet adjudication. KYA-authed and bound to the ticket's own
+ *  agent_aid (a different agent is forbidden). Money-inert. */
+export interface RefundEscalateRequest {
+  readonly refund_id: string;
+  /** Optional additional context from the agent; advisory. */
+  readonly note?: string;
+}
+
+export interface RefundEscalateResponse {
+  readonly refund_id: string;
+  readonly status: RefundStatus;
+}
+
+/** The outcome of a dispute ruling. */
+export type DisputeRulingOutcome = "uphold_buyer" | "uphold_merchant";
+
+/** POST /v1/refund_adjudicate: a neutral Facet operator rules on an ESCALATED
+ *  dispute. Operator-authed (a shared adjudicator secret), NEITHER the merchant
+ *  NOR the agent. The ruling is Ed25519-signed over the reconstructed audit trail
+ *  and recorded immutably; uphold_buyer downgrades the merchant's reputation. */
+export interface RefundAdjudicateRequest {
+  readonly refund_id: string;
+  readonly ruling: DisputeRulingOutcome;
+  readonly rationale?: string;
+}
+
+/** The signed, immutably-recorded ruling returned by /v1/refund_adjudicate. */
+export interface DisputeRuling {
+  readonly refund_id: string;
+  readonly order_id: string;
+  readonly ruling: DisputeRulingOutcome;
+  readonly rationale: string | null;
+  /** keccak256 of the canonical evidence bundle (events + settle receipt + OMS record). */
+  readonly evidence_hash: string;
+  readonly arbiter_id: string;
+  /** The canonical ruling body that was signed. */
+  readonly ruling_body: string;
+  /** Ed25519 signature over ruling_body, verifiable against the published JWKS. */
+  readonly signature: string;
+  readonly kid: string;
+  /** The trace id bound into the signed canonical string; REQUIRED to reconstruct
+   *  and independently verify the signature against the JWKS (method POST, path
+   *  /v1/refund_adjudicate, this trace_id, sha256(ruling_body)). */
+  readonly trace_id: string;
+  readonly created_at: string;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Refunds CRUD — get_refund / list_refunds
@@ -1382,12 +1657,7 @@ export interface QuoteLicenseResponse {
 /** Catalog of attestation kinds the Terminal accepts. Mirrors the
  *  proof kinds the Terminal enforces at runtime. */
 export type ProofKind =
-  | "age"
-  | "jurisdiction"
-  | "license"
-  | "kyc"
-  | "prescription"
-  | "license_export";
+  "age" | "jurisdiction" | "license" | "kyc" | "prescription" | "license_export";
 
 export const PROOF_KINDS: readonly ProofKind[] = [
   "age",
@@ -1568,4 +1838,19 @@ export interface ReconcileSettlementsResponse {
   // Re-read but not yet RELEASED on-chain — left untouched for a later pass.
   readonly still_pending: number;
   readonly results: readonly ReconcileSettlementResult[];
+}
+
+// ── GET /v1/promo/slots ─────────────────────────────────────────────────────
+
+export interface PromoSlotsResponse {
+  /** Sites claimed under Tier 1 (any platform, free Pro + 0% Facet fee, 12 months). */
+  readonly tier1_claimed: number;
+  /** Tier 1 cap. */
+  readonly tier1_cap: number;
+  /** Sites claimed under Tier 2 (WooCommerce, 0% Facet fee, 12 months). */
+  readonly tier2_claimed: number;
+  /** Tier 2 cap. */
+  readonly tier2_cap: number;
+  /** False when the counts are placeholder zeros (no database configured). */
+  readonly live: boolean;
 }

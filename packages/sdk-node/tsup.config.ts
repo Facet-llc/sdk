@@ -10,5 +10,5 @@ export default defineConfig({
   treeshake: true,
   // Workspace peers — ship alongside on npm, never bundle their sources
   // into sdk-node's dist/index.js. Mirrors packages/client/tsup.config.ts.
-  external: ["@facet-llc/protocol", "@facet-llc/client"],
+  external: ["@facet-llc/adapter", "@facet-llc/client"],
 });

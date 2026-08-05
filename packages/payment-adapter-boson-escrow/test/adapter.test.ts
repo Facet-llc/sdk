@@ -5,11 +5,16 @@ import type {
   DisputeInput,
   MerchantConfig,
   RailRequestContext,
+  RefundInput,
   ReserveAuthorityInput,
   VerifyAuthorityInput,
   WebhookRequest,
-} from "@facet-llc/protocol";
+} from "@facet-llc/adapter";
 import type { EscrowPaymentRequirements } from "@bosonprotocol/x402-core/schemes/escrow";
+import { metaTransactionExchangeTypedData } from "@bosonprotocol/x402-core/eip712";
+import { encodeSignedPayload } from "@bosonprotocol/x402-evm/codec";
+import { encodeFunctionData, type Hex, parseAbi } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 
 // ─── SDK mock — keep decodeXPaymentHeader + mapAsStore real, stub the
 // network-touching surface (validatePaymentPayload + the server handlers).
@@ -21,6 +26,7 @@ const h = vi.hoisted(() => ({
   disputeResolveFn: vi.fn(),
   disputeRetractFn: vi.fn(),
   disputeEscalateFn: vi.fn(),
+  performActionFn: vi.fn(),
 }));
 
 vi.mock("@bosonprotocol/x402-server", async (importOriginal) => {
@@ -29,6 +35,9 @@ vi.mock("@bosonprotocol/x402-server", async (importOriginal) => {
     ...actual,
     validatePaymentPayload: h.validateFn,
     createX402bServer: () => ({
+      // The FacilitatorClient the adapter's refund() relays cancel through directly
+      // (x402-server exposes no cancel handler).
+      facilitator: { performAction: h.performActionFn },
       handlers: {
         commit: h.commitFn,
         redeem: h.redeemFn,
@@ -141,6 +150,9 @@ function makeAdapter() {
     exchangeReaderFactory: (_cfg: BosonMerchantConfig) => ({ read: async () => null }),
     mode: "development",
     now: () => Date.parse("2026-06-02T00:00:00.000Z"),
+    // Model the Facet host: it verifies the webhook signature at its own route
+    // and delegates already-verified, so the adapter runs its lenient path.
+    requireWebhookSignature: false,
   });
 }
 
@@ -148,13 +160,35 @@ function makeAdapter() {
  *  (atomic escrowed amount), `seller`, and `exchangeToken` are the fields the
  *  capture binding gate compares; they default to this merchant's values so a
  *  matching snapshot redeems cleanly, and `over` lets a test inject a mismatch. */
-function snapshot(price: string, over: { seller?: string; exchangeToken?: string } = {}) {
+function snapshot(
+  price: string,
+  over: { seller?: string; exchangeToken?: string; state?: string; disputeState?: string } = {},
+) {
   return {
-    state: "Committed",
+    state: over.state ?? "Committed",
+    ...(over.disputeState !== undefined ? { disputeState: over.disputeState } : {}),
     seller: over.seller ?? SELLER,
     exchangeToken: over.exchangeToken ?? ASSET,
     price,
   } as unknown as Awaited<ReturnType<import("@bosonprotocol/x402-server").ExchangeReader["read"]>>;
+}
+
+/** Adapter whose reader returns `snap` but whose clock JUMPS past the reverify
+ *  budget on its second read — so a non-matching snapshot gives up on the first
+ *  deadline check with NO real sleep (deterministic reverify-timeout test). */
+function makeAdapterReturningWithExpiredBudget(snap: ReturnType<typeof snapshot>) {
+  let t = Date.parse("2026-06-02T00:00:00.000Z");
+  return new BosonEscrowAdapter({
+    facilitatorUrl: FACILITATOR,
+    rpcUrl: RPC,
+    exchangeReaderFactory: (_cfg: BosonMerchantConfig) => ({ read: async () => snap }),
+    mode: "development",
+    now: () => {
+      const v = t;
+      t += 60_000; // > REVERIFY_BUDGET_MS, so the deadline check trips immediately
+      return v;
+    },
+  });
 }
 
 /** Adapter whose on-chain reader returns the given snapshot, so the capture
@@ -586,6 +620,61 @@ describe("BosonEscrowAdapter.capture", () => {
     expect(h.redeemFn).not.toHaveBeenCalled();
   });
 
+  // Boson DD review (2026-07-06): the deferred-redeem path holds a buyer's
+  // pre-signed redeem and fires it later at fulfillment. If the exchange moved
+  // OFF Committed in the interim (buyer cancelled / seller revoked / window
+  // elapsed), seller+token+price all still match (they don't change on cancel),
+  // so ONLY the state gate can refuse. Fail closed locally instead of relaying a
+  // redeem the Diamond would revert.
+  it("refuses to redeem a voucher whose on-chain state is no longer Committed", async () => {
+    h.redeemFn.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: {
+        txHash: "0xredeem",
+        nextActions: { exchangeId: "7", exchangeState: "REDEEMED", next: [] },
+      },
+    });
+    for (const state of ["Cancelled", "Revoked", "Redeemed", "Completed", "Disputed"]) {
+      const res = await makeAdapterReturning(snapshot("1230000", { state })).capture(
+        captureInput({ exchange_id: "7", signed_payload: "0xabababab" }),
+      );
+      expect(res).toMatchObject({
+        kind: "error",
+        code: "UNAUTHORIZED",
+        native_code: "escrow_state_not_committed",
+        retryable: false,
+      });
+    }
+    expect(h.redeemFn).not.toHaveBeenCalled();
+  });
+
+  // Fail-OPEN contract: an unreadable state (missing / non-string) must NOT block
+  // a real redeem. The state gate fires only on a KNOWN non-Committed value,
+  // mirroring the seller/token gates; here seller + token + price all match.
+  it("redeems when the on-chain state is unreadable (fail open, not closed)", async () => {
+    h.redeemFn.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: {
+        txHash: "0xredeem",
+        nextActions: { exchangeId: "7", exchangeState: "REDEEMED", next: [] },
+      },
+    });
+    const noStateSnap = {
+      seller: SELLER,
+      exchangeToken: ASSET,
+      price: "1230000",
+    } as unknown as Awaited<
+      ReturnType<import("@bosonprotocol/x402-server").ExchangeReader["read"]>
+    >;
+    const res = await makeAdapterReturning(noStateSnap).capture(
+      captureInput({ exchange_id: "7", signed_payload: "0xabababab" }),
+    );
+    expect(res.kind).toBe("ok");
+    expect(h.redeemFn).toHaveBeenCalledTimes(1);
+  });
+
   // Production-path coverage (x402B #115 review): the host's real reader ASSERTS
   // the binding and THROWS on a mismatch, rather than returning a mismatching
   // snapshot. The gate must map that throw to a non-retryable UNAUTHORIZED — not
@@ -638,20 +727,204 @@ describe("BosonEscrowAdapter.capture", () => {
     expect(res.kind).toBe("ok");
     expect(h.redeemFn).toHaveBeenCalledTimes(1);
   });
+
+  // L1-UCP-BSN-002: the price-binding check must fail CLOSED, not OPEN. The reader
+  // returns a snapshot whose seller + token match this merchant (so the seller and
+  // token gates pass) but with NO price string. Without the fix the gate treats a
+  // missing/non-string price as PASS and redeems against an unverifiable on-chain
+  // amount; with the fix it returns a non-retryable UNAUTHORIZED (escrow_price_
+  // unverifiable) and never calls redeem.
+  it("refuses to redeem when the escrowed price is missing / not a string (fail closed)", async () => {
+    h.redeemFn.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: {
+        txHash: "0xredeem",
+        nextActions: { exchangeId: "7", exchangeState: "REDEEMED", next: [] },
+      },
+    });
+    // A snapshot with the right seller + token but no price field. seller/token
+    // gates pass, so this isolates the price branch.
+    const noPriceSnap = {
+      state: "Committed",
+      seller: SELLER,
+      exchangeToken: ASSET,
+    } as unknown as Awaited<
+      ReturnType<import("@bosonprotocol/x402-server").ExchangeReader["read"]>
+    >;
+    const res = await makeAdapterReturning(noPriceSnap).capture(
+      captureInput({ exchange_id: "7", signed_payload: "0xabababab" }),
+    );
+    expect(res).toMatchObject({
+      kind: "error",
+      code: "UNAUTHORIZED",
+      native_code: "escrow_price_unverifiable",
+      retryable: false,
+    });
+    expect(h.redeemFn).not.toHaveBeenCalled();
+  });
 });
 
 // ─── refund ───────────────────────────────────────────────────────────────────
 
-describe("BosonEscrowAdapter.refund", () => {
-  it("surfaces METHOD_NOT_ALLOWED until a seller action-signer is wired", async () => {
-    const res = await makeAdapter().refund({
-      ctx: ctx(),
-      merchant_config: merchantConfig(),
-      settlement_id: "7",
-      amount: USDC(1230000),
-      reason: "buyer changed mind",
+// A real buyer-signed exchange meta-tx (cancel or redeem), built with the same
+// SDK primitives a live buyer's wallet uses — so refund() runs the REAL
+// validateCancelPayload + assertExchangeBinding, and only the facilitator relay
+// is mocked. chainId + verifyingContract match merchantConfig() so the signature
+// recovers.
+const CANCEL_BUYER = privateKeyToAccount(`0x${"33".repeat(32)}` as Hex);
+const CANCEL_ABI = parseAbi(["function cancelVoucher(uint256 _exchangeId)"]);
+const REDEEM_ABI_T = parseAbi(["function redeemVoucher(uint256 _exchangeId)"]);
+
+async function buildExchangeMetaTx(
+  functionName: string,
+  calldata: Hex,
+  exchangeId: bigint,
+): Promise<string> {
+  const typedData = await metaTransactionExchangeTypedData({
+    chainId: 84532,
+    verifyingContract: ESCROW as `0x${string}`,
+    nonce: 9n,
+    from: CANCEL_BUYER.address,
+    functionName,
+    exchangeId,
+  });
+  // deno-lint-ignore no-explicit-any
+  const signature = await CANCEL_BUYER.signTypedData(typedData as any);
+  return encodeSignedPayload({
+    from: CANCEL_BUYER.address,
+    nonce: "9",
+    functionName,
+    functionSignature: calldata,
+    sig: {
+      v: parseInt(signature.slice(130, 132), 16),
+      r: signature.slice(0, 66) as Hex,
+      s: `0x${signature.slice(66, 130)}` as Hex,
+    },
+  });
+}
+const cancelPayload = (exchangeId: bigint) =>
+  buildExchangeMetaTx(
+    "cancelVoucher(uint256)",
+    encodeFunctionData({ abi: CANCEL_ABI, functionName: "cancelVoucher", args: [exchangeId] }),
+    exchangeId,
+  );
+
+describe("BosonEscrowAdapter.refund (pre-redeem buyer-cancel)", () => {
+  const refundInput = (over: Partial<RefundInput>): RefundInput => ({
+    ctx: ctx(),
+    merchant_config: merchantConfig(),
+    settlement_id: "7",
+    amount: USDC(1230000),
+    reason: "buyer changed mind",
+    ...over,
+  });
+
+  it("relays a buyer-signed cancel and returns RefundOk + rail_metadata", async () => {
+    h.performActionFn.mockResolvedValue({
+      ok: true,
+      txHash: "0xcancel",
+      newExchangeState: "CANCELLED",
     });
-    expect(res).toMatchObject({ kind: "error", code: "METHOD_NOT_ALLOWED" });
+    const payload = await cancelPayload(7n);
+    const res = await makeAdapterReturning(snapshot("1230000", { state: "COMMITTED" })).refund(
+      refundInput({ authority: { signed_payload: payload } }),
+    );
+    expect(res.kind).toBe("ok");
+    if (res.kind !== "ok") return;
+    expect(res.value).toMatchObject({ refund_id: "7" });
+    expect(res.value.rail_metadata?.escrow_state).toMatchObject({ exchange_state: "CANCELLED" });
+    expect(res.value.rail_metadata?.tx_hash).toBe("0xcancel");
+    expect(h.performActionFn).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "boson-cancelVoucher", exchangeId: "7" }),
+    );
+  });
+
+  it("rejects a refund missing authority.signed_payload", async () => {
+    const res = await makeAdapter().refund(refundInput({ authority: {} }));
+    expect(res).toMatchObject({ kind: "error", code: "INVALID_REQUEST" });
+    expect(h.performActionFn).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-cancel payload (a redeem meta-tx) before any relay", async () => {
+    const redeemPayload = await buildExchangeMetaTx(
+      "redeemVoucher(uint256)",
+      encodeFunctionData({ abi: REDEEM_ABI_T, functionName: "redeemVoucher", args: [7n] }),
+      7n,
+    );
+    const res = await makeAdapter().refund(
+      refundInput({ authority: { signed_payload: redeemPayload } }),
+    );
+    expect(res).toMatchObject({ kind: "error", code: "INVALID_REQUEST" });
+    expect(h.performActionFn).not.toHaveBeenCalled();
+  });
+
+  it("rejects a cancel whose signed exchange id != settlement_id (self-binding)", async () => {
+    const payload = await cancelPayload(999n);
+    const res = await makeAdapter().refund(
+      refundInput({ settlement_id: "7", authority: { signed_payload: payload } }),
+    );
+    expect(res).toMatchObject({ kind: "error", code: "INVALID_REQUEST" });
+    expect(h.performActionFn).not.toHaveBeenCalled();
+  });
+
+  it("refuses to cancel an exchange whose on-chain seller is not this merchant", async () => {
+    const payload = await cancelPayload(7n);
+    const res = await makeAdapterReturning(
+      snapshot("1230000", {
+        state: "COMMITTED",
+        seller: "0x9999999999999999999999999999999999999999",
+      }),
+    ).refund(refundInput({ authority: { signed_payload: payload } }));
+    expect(res).toMatchObject({ kind: "error", code: "UNAUTHORIZED" });
+    expect(h.performActionFn).not.toHaveBeenCalled();
+  });
+
+  it("refuses to cancel an exchange no longer COMMITTED", async () => {
+    const payload = await cancelPayload(7n);
+    const res = await makeAdapterReturning(snapshot("1230000", { state: "REDEEMED" })).refund(
+      refundInput({ authority: { signed_payload: payload } }),
+    );
+    expect(res).toMatchObject({ kind: "error", code: "UNAUTHORIZED" });
+    expect(h.performActionFn).not.toHaveBeenCalled();
+  });
+
+  it("maps a facilitator rejection to SETTLEMENT_FAILED (non-retryable)", async () => {
+    h.performActionFn.mockResolvedValue({ ok: false, code: "SIMULATION_REVERT", reason: "revert" });
+    const payload = await cancelPayload(7n);
+    const res = await makeAdapterReturning(snapshot("1230000", { state: "COMMITTED" })).refund(
+      refundInput({ authority: { signed_payload: payload } }),
+    );
+    expect(res).toMatchObject({ kind: "error", code: "SETTLEMENT_FAILED", retryable: false });
+  });
+
+  it("maps a facilitator throw to SETTLEMENT_FAILED (retryable)", async () => {
+    h.performActionFn.mockRejectedValue(new Error("facilitator 502"));
+    const payload = await cancelPayload(7n);
+    const res = await makeAdapterReturning(snapshot("1230000", { state: "COMMITTED" })).refund(
+      refundInput({ authority: { signed_payload: payload } }),
+    );
+    expect(res).toMatchObject({ kind: "error", code: "SETTLEMENT_FAILED", retryable: true });
+  });
+
+  // FAIL-CLOSED: unlike capture/redeem, a refund whose escrow cannot be read on-chain
+  // must NOT relay unbound (money leaves the escrow). It is refused (retryable), never
+  // relayed — so a partial/foreign amount can never slip through a transient read miss.
+  it("refuses (does not relay) when the escrow snapshot is unreadable (null reader)", async () => {
+    const payload = await cancelPayload(7n);
+    // makeAdapter's reader returns null (unreadable snapshot).
+    const res = await makeAdapter().refund(refundInput({ authority: { signed_payload: payload } }));
+    expect(res).toMatchObject({ kind: "error", code: "SETTLEMENT_FAILED", retryable: true });
+    expect(h.performActionFn).not.toHaveBeenCalled();
+  });
+
+  it("refuses (does not relay) when the reader throws a transient error", async () => {
+    const payload = await cancelPayload(7n);
+    const res = await makeAdapterWithThrowingReader(new Error("subgraph 503")).refund(
+      refundInput({ authority: { signed_payload: payload } }),
+    );
+    expect(res).toMatchObject({ kind: "error", code: "SETTLEMENT_FAILED", retryable: true });
+    expect(h.performActionFn).not.toHaveBeenCalled();
   });
 });
 
@@ -733,6 +1006,114 @@ describe("BosonEscrowAdapter.dispute", () => {
   it("rejects a dispute missing the signed meta-tx", async () => {
     const res = await makeAdapter().dispute(disputeInput({ evidence: {} }));
     expect(res).toMatchObject({ kind: "error", code: "INVALID_REQUEST" });
+  });
+
+  it("surfaces the tx hash + escrow_state as rail_metadata on a clean raise", async () => {
+    h.disputeRaiseFn.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: {
+        txHash: "0xraise",
+        nextActions: {
+          exchangeId: "7",
+          exchangeState: "DISPUTED",
+          disputeState: "RESOLVING",
+          next: [],
+        },
+      },
+    });
+    const res = await makeAdapter().dispute(
+      disputeInput({ evidence: { signed_payload: "0xabababab" } }),
+    );
+    expect(res.kind).toBe("ok");
+    if (res.kind !== "ok") return;
+    expect(res.value.rail_metadata?.tx_hash).toBe("0xraise");
+    expect(res.value.rail_metadata?.escrow_state).toMatchObject({ exchange_state: "DISPUTED" });
+  });
+
+  // ── 502/STATE_VERIFY_ subgraph-lag recovery ──────────────────────────────────
+  // The facilitator relays the meta-tx, but the SDK's post-action verify may read a
+  // LAGGING subgraph and 502 even though the transition already landed on-chain
+  // (proven on mainnet 2026-07-17: raise + resolve both 502'd yet landed). The
+  // adapter re-verifies the expected on-chain state before surfacing the false fail.
+  const stateVerify502 = (code: string, txHash: string) => ({
+    ok: false as const,
+    status: 502,
+    body: { code, reason: "post-action state verification failed", details: { txHash } },
+  });
+
+  it("recovers a raise false-fail: 502/STATE_VERIFY_ but the chain shows DISPUTED", async () => {
+    h.disputeRaiseFn.mockResolvedValue(stateVerify502("STATE_VERIFY_STATE_MISMATCH", "0xraise"));
+    const res = await makeAdapterReturning(
+      snapshot("1230000", { state: "DISPUTED", disputeState: "RESOLVING" }),
+    ).dispute(disputeInput({ evidence: { signed_payload: "0xabababab" } }));
+    expect(res.kind).toBe("ok");
+    if (res.kind !== "ok") return;
+    expect(res.value).toMatchObject({ dispute_id: "7", status: "open" });
+    expect(res.value.rail_metadata?.escrow_state).toMatchObject({ exchange_state: "DISPUTED" });
+    expect(res.value.rail_metadata?.tx_hash).toBe("0xraise");
+  });
+
+  it("recovers a resolve false-fail: matches the DISPUTE sub-state RESOLVED, not just DISPUTED", async () => {
+    h.disputeResolveFn.mockResolvedValue(
+      stateVerify502("STATE_VERIFY_DISPUTE_STATE_MISMATCH", "0xresolve"),
+    );
+    const res = await makeAdapterReturning(
+      snapshot("1230000", { state: "DISPUTED", disputeState: "RESOLVED" }),
+    ).dispute(
+      disputeInput({ evidence: { signed_payload: "0xabababab", boson_action: "resolve" } }),
+    );
+    expect(res.kind).toBe("ok");
+    if (res.kind !== "ok") return;
+    expect(res.value).toMatchObject({ dispute_id: "7", status: "won" });
+    expect(res.value.rail_metadata?.escrow_state).toMatchObject({ dispute_state: "RESOLVED" });
+  });
+
+  it("does NOT recover a resolve while the chain dispute is still RESOLVING (per-kind field)", async () => {
+    // Exchange is DISPUTED but the dispute sub-state has not reached RESOLVED. A naive
+    // exchange-state-only check would false-positive; disputeLanded requires RESOLVED.
+    h.disputeResolveFn.mockResolvedValue(
+      stateVerify502("STATE_VERIFY_DISPUTE_STATE_MISMATCH", "0xresolve"),
+    );
+    const res = await makeAdapterReturningWithExpiredBudget(
+      snapshot("1230000", { state: "DISPUTED", disputeState: "RESOLVING" }),
+    ).dispute(
+      disputeInput({ evidence: { signed_payload: "0xabababab", boson_action: "resolve" } }),
+    );
+    expect(res).toMatchObject({ kind: "error", code: "SETTLEMENT_FAILED", retryable: true });
+  });
+
+  it("does NOT mask a hard reader error — surfaces the original 502", async () => {
+    h.disputeRaiseFn.mockResolvedValue(stateVerify502("STATE_VERIFY_STATE_MISMATCH", "0xraise"));
+    const res = await makeAdapterWithThrowingReader(new Error("rpc down")).dispute(
+      disputeInput({ evidence: { signed_payload: "0xabababab" } }),
+    );
+    expect(res).toMatchObject({ kind: "error", code: "SETTLEMENT_FAILED", retryable: true });
+  });
+
+  it("does NOT reverify a non-502 dispute rejection (409 passes straight through)", async () => {
+    h.disputeRaiseFn.mockResolvedValue({
+      ok: false,
+      status: 409,
+      body: { code: "EXCHANGE_STATE", reason: "not disputable", details: {} },
+    });
+    // Reader would throw if consulted — proves the guard short-circuits before any read.
+    const res = await makeAdapterWithThrowingReader(new Error("should not read")).dispute(
+      disputeInput({ evidence: { signed_payload: "0xabababab" } }),
+    );
+    expect(res).toMatchObject({ kind: "error", code: "SETTLEMENT_FAILED", retryable: false });
+  });
+
+  it("does NOT reverify a 502 that is not a STATE_VERIFY_ verify-lag (facilitator reject)", async () => {
+    h.disputeRaiseFn.mockResolvedValue({
+      ok: false,
+      status: 502,
+      body: { code: "FACILITATOR_REJECTED", reason: "relay refused", details: {} },
+    });
+    const res = await makeAdapterWithThrowingReader(new Error("should not read")).dispute(
+      disputeInput({ evidence: { signed_payload: "0xabababab" } }),
+    );
+    expect(res).toMatchObject({ kind: "error", code: "SETTLEMENT_FAILED", retryable: true });
   });
 });
 
@@ -935,6 +1316,61 @@ describe("BosonEscrowAdapter.handleWebhook versioned secrets", () => {
       kind: "ok",
       value: { kind: "settlement_confirmed", settlement_id: "7" },
     });
+  });
+});
+
+// ─── handleWebhook secure default (requireWebhookSignature) ────────────────────
+
+describe("BosonEscrowAdapter.handleWebhook requireWebhookSignature (secure default)", () => {
+  const body = { exchangeId: "7", exchangeState: "COMPLETED" };
+
+  function adapterWith(over: { requireWebhookSignature?: boolean }) {
+    const rejections: WebhookRejection[] = [];
+    const adapter = new BosonEscrowAdapter({
+      facilitatorUrl: FACILITATOR,
+      rpcUrl: RPC,
+      exchangeReaderFactory: (_cfg: BosonMerchantConfig) => ({ read: async () => null }),
+      mode: "development",
+      now: () => Date.parse("2026-06-02T00:00:00.000Z"),
+      webhookRejectionLogger: (r) => rejections.push(r),
+      ...over,
+    });
+    return { adapter, rejections };
+  }
+
+  it("DEFAULT (no flag): a secret-less webhook is REFUSED UNAUTHORIZED, not trusted", async () => {
+    // No requireWebhookSignature set → defaults to true. With no webhook_secret
+    // there is nothing to verify against, so the adapter fails closed instead of
+    // trusting an unauthenticated body — protects a third-party host that forgot
+    // to verify upstream.
+    const { adapter, rejections } = adapterWith({});
+    const res = await adapter.handleWebhook({
+      ctx: ctx(),
+      merchant_config: merchantConfig(),
+      raw_body: new TextEncoder().encode(JSON.stringify(body)),
+      parsed_body: body,
+      headers: {},
+    });
+    expect(res).toMatchObject({
+      kind: "error",
+      code: "UNAUTHORIZED",
+      native_code: "signature_verification_failed",
+    });
+    expect(rejections).toHaveLength(1);
+    expect(rejections[0]).toMatchObject({ reason: "missing_signature_header" });
+  });
+
+  it("requireWebhookSignature:false restores the lenient host-verified path (empty config)", async () => {
+    const { adapter, rejections } = adapterWith({ requireWebhookSignature: false });
+    const res = await adapter.handleWebhook({
+      ctx: ctx(),
+      merchant_config: {},
+      raw_body: new TextEncoder().encode(JSON.stringify(body)),
+      parsed_body: body,
+      headers: {},
+    });
+    expect(res).toMatchObject({ kind: "ok", value: { kind: "settlement_confirmed" } });
+    expect(rejections).toHaveLength(0);
   });
 });
 
