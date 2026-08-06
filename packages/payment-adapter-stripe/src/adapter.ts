@@ -178,18 +178,24 @@ export class StripeAdapter implements FacetPaymentRailAdapter {
     const cfg = readMerchantConfig(input.merchant_config);
     if (cfg.kind === "error") return cfg.error;
 
-    const { paymentMethod, existingPaymentIntent } = parseAuthority(input.authority);
-    if (paymentMethod === undefined && existingPaymentIntent === undefined) {
+    const { paymentMethod, existingPaymentIntent, delegatedPaymentToken } = parseAuthority(
+      input.authority,
+    );
+    if (
+      paymentMethod === undefined &&
+      existingPaymentIntent === undefined &&
+      delegatedPaymentToken === undefined
+    ) {
       return errResult(
         "INVALID_REQUEST",
-        "authority must contain either `payment_method` (pm_…) or `payment_intent` (pi_…)",
+        "authority must contain `payment_method` (pm_…), `payment_intent` (pi_…), or `delegated_payment_token` (an ACP Shared Payment Token)",
       );
     }
 
     const stripe = this.getClient(cfg.value);
 
     try {
-      // Path A — caller already has a PI; we just retrieve + validate.
+      // Path A: caller already has a PI; we just retrieve + validate.
       if (existingPaymentIntent !== undefined) {
         const pi = await stripe.paymentIntents.retrieve(
           existingPaymentIntent,
@@ -207,9 +213,15 @@ export class StripeAdapter implements FacetPaymentRailAdapter {
         return validated;
       }
 
-      // Path B — create a manual-capture PI with the supplied PM.
+      // Path B: create a manual-capture PI with the supplied PM. Path C: redeem
+      // an ACP Shared Payment Token instead (delegatedPaymentToken set,
+      // paymentMethod undefined; the guard above already rejected the case
+      // where all three are undefined). Both share the store-write and return
+      // below; they differ only in which params builder makes the create call.
       const pi = await stripe.paymentIntents.create(
-        buildCreateParams(input, cfg.value, paymentMethod!),
+        paymentMethod !== undefined
+          ? buildCreateParams(input, cfg.value, paymentMethod)
+          : buildCreateParamsForDelegatedPayment(input, cfg.value, delegatedPaymentToken!),
         requestOptionsFor(cfg.value, input.ctx),
       );
       // record the Facet-side identity tuple immediately. If
@@ -586,12 +598,22 @@ function readMerchantConfig(cfg: MerchantConfig): ConfigOk | ConfigError {
 function parseAuthority(authority: Readonly<Record<string, unknown>>): {
   paymentMethod: string | undefined;
   existingPaymentIntent: string | undefined;
+  delegatedPaymentToken: string | undefined;
 } {
   const pm = authority.payment_method;
   const pi = authority.payment_intent;
+  // ACP (Agentic Commerce Protocol) Delegate Payment leg: OpenAI hands the
+  // buyer a Stripe Shared Payment Token, and Facet's ACP checkout-complete
+  // handler passes it through here rather than a raw `payment_method`. See
+  // acp-payment-stripe.ts for where this authority shape is constructed, and
+  // third_party/acp-spec/FACET-ACP-ANALYSIS.md section 5 for the source of
+  // this call shape (read from Stripe's own docs.stripe.com/agentic-commerce
+  // sample code, not guessed).
+  const spt = authority.delegated_payment_token;
   return {
     paymentMethod: typeof pm === "string" && pm !== "" ? pm : undefined,
     existingPaymentIntent: typeof pi === "string" && pi !== "" ? pi : undefined,
+    delegatedPaymentToken: typeof spt === "string" && spt !== "" ? spt : undefined,
   };
 }
 
@@ -621,6 +643,51 @@ function buildCreateParams(
     // `transfer_data.destination` — that switches to destination
     // charges and would route money through Facet's platform account
     // first, breaking the non-custodial invariant.
+    ...(cfg.connect_account_id !== undefined && cfg.application_fee_minor !== undefined
+      ? { application_fee_amount: cfg.application_fee_minor }
+      : {}),
+  };
+}
+
+/** Build PaymentIntent create params for an ACP Shared Payment Token
+ *  redemption. Confirmed call shape (`payment_method_data.shared_payment_granted_token`,
+ *  `confirm: true`) from Stripe's own docs.stripe.com/agentic-commerce/apps/accept-payment
+ *  sample code, read directly this session; see FACET-ACP-ANALYSIS.md section 5.
+ *  `capture_method: "manual"` is Facet's own addition, not shown in Stripe's
+ *  sample (their sample auto-captures): setting it keeps the existing
+ *  `capture()` method below working completely unchanged for the SPT case,
+ *  the same two-phase reserve-then-capture shape every other Facet rail uses.
+ *  Deliberately OMITTED versus buildCreateParams: `off_session` and
+ *  `automatic_payment_methods` (neither is shown in Stripe's SPT sample, and
+ *  combining `automatic_payment_methods` with explicit `payment_method_data`
+ *  is not a documented Stripe pattern; adding either without confirmation
+ *  would be exactly the kind of guessed API shape Facet's own
+ *  adapter-authoring.md rule forbids). Verify this exact call against a real
+ *  Stripe sandbox with a test SPT before this path is used for live money,
+ *  see the execution plan's Phase 4 acceptance criteria. */
+function buildCreateParamsForDelegatedPayment(
+  input: VerifyAuthorityInput,
+  cfg: StripeMerchantConfig,
+  delegatedPaymentToken: string,
+): Stripe.PaymentIntentCreateParams {
+  return {
+    amount: input.amount.amount,
+    currency: input.amount.currency.toLowerCase(),
+    capture_method: "manual",
+    confirm: true,
+    payment_method_data: {
+      // Stripe's TypeScript SDK types may lag a brand-new API field; the
+      // `as` cast documents that gap rather than hiding an unrelated bug.
+      // Confirm against a current `stripe` SDK release before removing it.
+      shared_payment_granted_token: delegatedPaymentToken,
+    } as unknown as Stripe.PaymentIntentCreateParams.PaymentMethodData,
+    metadata: {
+      facet_trace_id: input.ctx.trace_id,
+      facet_idempotency_key: input.ctx.idempotency_key,
+      facet_merchant_id: input.ctx.merchant_id,
+      facet_site_id: input.ctx.site_id,
+      facet_acp_delegated_payment: "true",
+    },
     ...(cfg.connect_account_id !== undefined && cfg.application_fee_minor !== undefined
       ? { application_fee_amount: cfg.application_fee_minor }
       : {}),

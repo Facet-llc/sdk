@@ -225,6 +225,109 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/ucp/v1/checkout-sessions/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel a committed-but-not-redeemed Boson exchange and refund the buyer in full. A buyer agent presents its RFC 9421 ES256 platform signature plus the buyer-signed boson-cancelVoucher meta-tx; the Terminal binds the exchange to this site (server-derived, not a body value) and relays the gasless cancel. Public + activation-exempt; 404 until FACET_UCP_ENABLED. */
+        post: operations["ucpCancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ucp/v1/checkout-sessions/dispute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Raise, retract, or escalate a dispute on a redeemed Boson exchange (buyer-only actions; resolve is mutual and excluded). A buyer agent presents its RFC 9421 ES256 platform signature plus the buyer-signed dispute meta-tx; the Terminal binds the exchange to this site and relays it gaslessly. Public + activation-exempt; 404 until FACET_UCP_ENABLED. */
+        post: operations["ucpDispute"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/checkout_sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** ACP checkout CREATE (OpenAI Agentic Commerce Protocol). Reserves a cart of server-priced DISTINCT line items and returns a checkout session advertising card-only Stripe Shared Payment Token payment requirements. Amount and payee are always server-resolved from the reservation, never trusted from the platform request. Public + activation-exempt; returns 404 until the operator enables ACP via FACET_ACP_ENABLED. Fails closed on signature verification unless FACET_ACP_HMAC_SECRET is configured (Fable F-001/F-003). */
+        post: operations["acpCheckoutCreate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/checkout_sessions/:id": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** ACP checkout GET. Retrieves the current session snapshot. Known v1 gap: does not yet distinguish a completed session from a still-open one; always reports status ready_for_payment (the COMPLETE response is authoritative for the completed state). Public + activation-exempt; 404 until FACET_ACP_ENABLED. */
+        get: operations["acpCheckoutGet"];
+        put?: never;
+        /** ACP checkout UPDATE. v1 does not support item or address changes after CREATE (the reservation seals its fulfillment reference and priced totals at create); returns the unchanged session with an explanatory message when a change was attempted. Public + activation-exempt; 404 until FACET_ACP_ENABLED. */
+        post: operations["acpCheckoutUpdate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/checkout_sessions/:id/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** ACP checkout COMPLETE. The money-moving leg: bridges the buyer's Stripe Shared Payment Token to the Terminal dispatcher authority and delegates to settleReservation, which captures straight to the merchant's own Stripe account (Connect direct charge). Facet is never a payable party. Unlike every other ACP route, this always requires FACET_ACP_HMAC_SECRET regardless of any other flag and always fails closed with no secret configured. Public + activation-exempt; 404 until FACET_ACP_ENABLED. */
+        post: operations["acpCheckoutComplete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/checkout_sessions/:id/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** ACP checkout CANCEL. Voids an incomplete checkout session. Known v1 gap: does not yet write an explicit release record; the reservation's own TTL is the backstop expiry. Public + activation-exempt; 404 until FACET_ACP_ENABLED. */
+        post: operations["acpCheckoutCancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/openapi.json": {
         parameters: {
             query?: never;
@@ -2239,7 +2342,7 @@ export type components = {
                 /** @description Base64 X-PAYMENT header carrying the merchant-signed ERC-3009 send-back (transferWithAuthorization out of the merchant payTo). */
                 x_payment: string;
             };
-            /** @description Optional NON-CUSTODIAL x402 refund the merchant settled THEMSELVES. Use when the merchant's payTo is a smart CONTRACT wallet, which cannot produce the ERC-3009 signature `authority` carries (USDC recovers that with ecrecover, so it is EOA-only); the merchant instead broadcasts a plain USDC.transfer and posts the hash here. Facet neither signs nor relays: it VERIFIES the transaction on-chain (emitted by the network's USDC contract, sent from the merchant payTo, received by the buyer, for at least the server-derived amount, mined at or after the capture) and only then fulfils the ticket, recording the hash as settlement_ref. One transaction settles at most one ticket. Mutually exclusive with `authority`; supplying both is a 400. */
+            /** @description Optional NON-CUSTODIAL x402 refund the merchant settled THEMSELVES. Use when the merchant's wallet does not hand Facet the ERC-3009 signature `authority` carries; the merchant instead broadcasts a plain USDC.transfer from their own wallet and posts the hash here. Facet neither signs nor relays: it VERIFIES the transaction on-chain (emitted by the network's USDC contract, sent from the merchant payTo, received by the buyer, for at least the server-derived amount, mined at or after the capture) and only then fulfils the ticket, recording the hash as settlement_ref. One transaction settles at most one ticket. Mutually exclusive with `authority`; supplying both is a 400. */
             settlement?: {
                 /** @description 0x-prefixed 32-byte hash of the USDC transfer the merchant already broadcast from their own wallet. */
                 tx_hash: string;
@@ -2272,7 +2375,7 @@ export type components = {
             order_id: string;
             /** @description The buyer wallet the refund must go to, captured at settle. Server-derived, never accepted from the caller. null when the order has no captured buyer wallet, in which case no x402 refund can be targeted. */
             refund_to?: string | null;
-            /** @description The wallet the refund must come OUT of, on the current plane. The plugin checks the connected wallet against it before a broadcast spends real USDC, and uses it to tell an EOA (signs an ERC-3009 for Facet to relay) from a contract wallet (must broadcast a transfer itself, because USDC recovers ERC-3009 with ecrecover). */
+            /** @description The wallet the refund must come OUT of, on the current plane. The plugin checks the connected wallet against it before a broadcast spends real USDC, and uses it to pick a settlement path: sign an ERC-3009 for Facet to relay, or broadcast a plain USDC.transfer directly from that wallet. */
             pay_to: string | null;
             /** @description USDC chain slug: 'base' or 'base-sepolia'. */
             chain: string | null;
@@ -2283,21 +2386,6 @@ export type components = {
             captured_minor: number;
             /** @description Cents still refundable: captured minus everything already claimed on the shared ledger. ADVISORY pre-flight so the plugin can refuse before a merchant broadcasts USDC that could never be recorded; the authoritative over-refund cap is still the claim RPC at webhook time. */
             refundable_minor: number;
-        };
-        /** @description Internal: owner-only setter for the site's refund auto-approve window (sites.refund_auto_approve_window_hours). Gated via requireSiteRole owner on the body site_id. */
-        RefundPolicyRequest: {
-            site_id: string;
-            /** @description Auto-approve window in hours (max 8760). null or 0 disables auto-approval; a positive value auto-approves settled, un-fulfilled refunds requested within it. */
-            window_hours?: number | null;
-            /** @description Optional reputation floor (max 1000), AND-ed with the window. null or 0 disables it; a positive value only auto-approves when the requesting agent's derived reputation score is at or above it, and never for an unknown agent. */
-            min_reputation?: number | null;
-        };
-        RefundPolicyResponse: {
-            site_id: string;
-            /** @description The site's current auto-approve window in hours; null when disabled. */
-            refund_auto_approve_window_hours: number | null;
-            /** @description The site's current auto-approve reputation floor (0 to 1000); null when disabled. */
-            refund_auto_approve_min_reputation: number | null;
         };
         /** @description The disputing agent escalates its own REJECTED refund ticket for Facet adjudication. KYA-authed and bound to the ticket's own agent_aid. Money-inert. */
         RefundEscalateRequest: {
@@ -2921,6 +3009,52 @@ export type components = {
         } & {
             [key: string]: unknown;
         };
+        /** @description Cancel a committed-but-not-redeemed Boson exchange (POST /ucp/v1/checkout-sessions/cancel) and refund the buyer in full. The buyer signs the cancel; a relayer sponsors the gas. */
+        UcpCancelRequest: {
+            /** @description The committed-but-not-redeemed on-chain Boson exchange id to cancel. */
+            exchange_id: string;
+            /** @description The buyer's signed boson-cancelVoucher meta-transaction. Only the voucher holder can produce it, so the cancel is buyer-authorized on-chain. */
+            signed_payload: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description Acknowledges the on-chain cancel. The escrowed USDC returns to the buyer's protocol available-funds; the buyer cashes out with a separate withdrawFunds. */
+        UcpCancelResponse: {
+            /** @description Cancel status, e.g. "cancelled". */
+            status?: string;
+            /** @description The cancelled exchange. */
+            exchange_id?: string;
+            /** @description The rail refund id (the exchange id). */
+            refund_id?: string;
+            /** @description On-chain evidence: { escrow_state, tx_hash }. */
+            rail_metadata?: unknown;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description Raise, retract, or escalate a dispute on a redeemed Boson exchange (POST /ucp/v1/checkout-sessions/dispute). Buyer-signed; a relayer sponsors the gas. */
+        UcpDisputeRequest: {
+            /** @description The redeemed on-chain Boson exchange id to dispute. */
+            exchange_id: string;
+            /** @description The buyer dispute action: "raise", "retract", or "escalate". resolve is a mutual buyer+seller action and is deliberately not exposed here. */
+            action: string;
+            /** @description The buyer's signed boson dispute meta-transaction for the chosen action. */
+            signed_payload: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description Acknowledges the on-chain dispute transition (raised, retracted, or escalated). */
+        UcpDisputeResponse: {
+            /** @description Dispute status, e.g. "dispute_raise". */
+            status?: string;
+            /** @description The disputed exchange. */
+            exchange_id?: string;
+            /** @description The rail dispute id (the exchange id). */
+            dispute_id?: string;
+            /** @description On-chain evidence: { escrow_state, tx_hash }. */
+            rail_metadata?: unknown;
+        } & {
+            [key: string]: unknown;
+        };
         /** @description A UCP checkout completion mapped from a settled Terminal order. settlement_id is the on-chain capture id; the funds moved straight to the merchant's pay_to (non-custodial). */
         UcpCheckoutCompleteResponse: {
             /** @description Completion status, e.g. "completed". */
@@ -2931,6 +3065,59 @@ export type components = {
             settlement_id?: string;
             /** @description ISO 8601 settlement timestamp, when available. */
             settled_at?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description An ACP checkout create request (POST /checkout_sessions). v1 reserves a cart of server-priced DISTINCT line items and advertises card-only Stripe Shared Payment Token payment requirements. Every price is resolved from this merchant's catalog, never the request body. */
+        AcpCheckoutCreateRequest: {
+            /** @description The authoritative ACP line items: [{ id, quantity }] (CheckoutSessionCreateRequest.line_items per the formal schema). A flat `items` key with the same shape is also accepted as a compatibility fallback. v1 supports a cart of DISTINCT ids (up to 20 lines); every price is server-derived from the catalog, never trusted from the request. */
+            line_items: unknown;
+            /** @description ISO 4217 currency code. */
+            currency: string;
+            /** @description Optional. { phone_number, address: { name, line_one, line_two, city, state, country, postal_code } }. When present, the destination is vaulted and the session is priced LANDED: goods plus shipping plus tax. Omit for a goods-only checkout. */
+            fulfillment_details?: unknown;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description An ACP checkout session, returned by CREATE, UPDATE, and GET. Amount and payee are always server-resolved from the reservation, never trusted from the platform request. */
+        AcpCheckoutSession: {
+            /** @description The checkout session id (the Terminal reservation id). */
+            id?: string;
+            /** @description ACP status enum: not_ready_for_payment | ready_for_payment | completed | canceled. A distinct FSM from UCP's own status lifecycle. */
+            status?: string;
+            /** @description ISO 4217 currency of the priced cart. */
+            currency?: string;
+            /** @description Server-priced line items: [{ id, item, quantity, base_amount, subtotal, tax, total }], per the formal CheckoutSession.line_items schema. */
+            line_items?: unknown;
+            /** @description [{ type, display_text, amount }], the array-of-entries totals shape the vendored spec's own CheckoutSession.example uses (not a single Totals object). */
+            totals?: unknown;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description An ACP checkout update request (POST /checkout_sessions/{id}). v1 does not support item or address changes after CREATE (Facet's reservation seals its fulfillment reference and priced totals at create, the same constraint UCP already lives with); the response is the unchanged session with an explanatory message when a change was attempted. */
+        AcpCheckoutUpdateRequest: {
+            /** @description Same shape as AcpCheckoutCreateRequest.line_items. */
+            line_items?: unknown;
+            /** @description Same shape as AcpCheckoutCreateRequest.fulfillment_details. */
+            fulfillment_details?: unknown;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description An ACP checkout complete request (POST /checkout_sessions/{id}/complete). Bridges the buyer's Stripe Shared Payment Token to the Terminal dispatcher authority and delegates to settleReservation, which captures straight to the merchant's own Stripe account (Connect direct charge). Facet is never a payable party. */
+        AcpCheckoutCompleteRequest: {
+            /** @description The authoritative nested shape is { instrument: { credential: { type, token } } }, gated by handler_id (CheckoutSessionCompleteRequest.payment_data per the formal schema). A flat { type, token } shape is also accepted as a compatibility fallback (the formal schema embedded example uses this shape instead, a confirmed authoring defect in the vendored spec). token is the Stripe Shared Payment Token (spt_...); Facet redeems it via stripe.paymentIntents.create({payment_method_data:{shared_payment_granted_token}, capture_method: manual}), the manual-capture leg of the existing two-phase reserve-then-capture Stripe rail. */
+            payment_data: unknown;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description An ACP checkout completion mapped from a settled Terminal order. The Stripe charge id (or PaymentIntent id when no charge id is available) is the settlement_id surfaced by the dispatcher's CaptureOk envelope. */
+        AcpCheckoutCompleteResponse: {
+            /** @description The checkout session id. */
+            id?: string;
+            /** @description Completion status, "completed" on success. */
+            status?: string;
+            /** @description The settled order: { id, checkout_session_id, permalink_url }. */
+            order?: unknown;
         } & {
             [key: string]: unknown;
         };
@@ -4291,6 +4478,278 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RefundRequestResponse"];
+                };
+            };
+            400: components["responses"]["FacetError"];
+            401: components["responses"]["FacetError"];
+            403: components["responses"]["FacetError"];
+            404: components["responses"]["FacetError"];
+            429: components["responses"]["FacetRateLimited"];
+            500: components["responses"]["FacetError"];
+        };
+    };
+    ucpCancel: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UcpCancelRequest"];
+            };
+        };
+        responses: {
+            /** @description Success. */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UcpCancelResponse"];
+                };
+            };
+            400: components["responses"]["FacetError"];
+            401: components["responses"]["FacetError"];
+            403: components["responses"]["FacetError"];
+            404: components["responses"]["FacetError"];
+            429: components["responses"]["FacetRateLimited"];
+            500: components["responses"]["FacetError"];
+        };
+    };
+    ucpDispute: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UcpDisputeRequest"];
+            };
+        };
+        responses: {
+            /** @description Success. */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UcpDisputeResponse"];
+                };
+            };
+            400: components["responses"]["FacetError"];
+            401: components["responses"]["FacetError"];
+            403: components["responses"]["FacetError"];
+            404: components["responses"]["FacetError"];
+            429: components["responses"]["FacetRateLimited"];
+            500: components["responses"]["FacetError"];
+        };
+    };
+    acpCheckoutCreate: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcpCheckoutCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Success. */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcpCheckoutSession"];
+                };
+            };
+            400: components["responses"]["FacetError"];
+            401: components["responses"]["FacetError"];
+            403: components["responses"]["FacetError"];
+            404: components["responses"]["FacetError"];
+            429: components["responses"]["FacetRateLimited"];
+            500: components["responses"]["FacetError"];
+        };
+    };
+    acpCheckoutGet: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success. */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcpCheckoutSession"];
+                };
+            };
+            400: components["responses"]["FacetError"];
+            401: components["responses"]["FacetError"];
+            403: components["responses"]["FacetError"];
+            404: components["responses"]["FacetError"];
+            429: components["responses"]["FacetRateLimited"];
+            500: components["responses"]["FacetError"];
+        };
+    };
+    acpCheckoutUpdate: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcpCheckoutUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Success. */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcpCheckoutSession"];
+                };
+            };
+            400: components["responses"]["FacetError"];
+            401: components["responses"]["FacetError"];
+            403: components["responses"]["FacetError"];
+            404: components["responses"]["FacetError"];
+            429: components["responses"]["FacetRateLimited"];
+            500: components["responses"]["FacetError"];
+        };
+    };
+    acpCheckoutComplete: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcpCheckoutCompleteRequest"];
+            };
+        };
+        responses: {
+            /** @description Success. */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcpCheckoutCompleteResponse"];
+                };
+            };
+            400: components["responses"]["FacetError"];
+            401: components["responses"]["FacetError"];
+            403: components["responses"]["FacetError"];
+            404: components["responses"]["FacetError"];
+            429: components["responses"]["FacetRateLimited"];
+            500: components["responses"]["FacetError"];
+        };
+    };
+    acpCheckoutCancel: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Protocol-version pin (e.g. `application/vnd.facet+json; version=0.2`). */
+                Accept?: components["parameters"]["AcceptVersion"];
+                /** @description Optional client-supplied trace id; echoed in X-Facet-Trace-Id response header. */
+                "X-Facet-Trace-Id"?: components["parameters"]["TraceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success. */
+            200: {
+                headers: {
+                    "X-Facet-Signature": components["headers"]["XFacetSignature"];
+                    "X-Facet-Trace-Id": components["headers"]["XFacetTraceId"];
+                    "X-Facet-RateLimit-Limit": components["headers"]["XFacetRateLimitLimit"];
+                    "X-Facet-RateLimit-Remaining": components["headers"]["XFacetRateLimitRemaining"];
+                    "X-Facet-RateLimit-Reset": components["headers"]["XFacetRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcpCheckoutSession"];
                 };
             };
             400: components["responses"]["FacetError"];

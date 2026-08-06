@@ -810,6 +810,43 @@ const cancelPayload = (exchangeId: bigint) =>
     exchangeId,
   );
 
+// Real buyer-signed dispute meta-txs (raise/retract/escalate) — same
+// MetaTxExchange struct family as cancel, so dispute() runs the REAL
+// validateDisputePayload and only the SDK handler is mocked.
+const RAISE_DISPUTE_ABI = parseAbi(["function raiseDispute(uint256 _exchangeId)"]);
+const RETRACT_DISPUTE_ABI = parseAbi(["function retractDispute(uint256 _exchangeId)"]);
+const ESCALATE_DISPUTE_ABI = parseAbi(["function escalateDispute(uint256 _exchangeId)"]);
+const raiseDisputePayload = (exchangeId: bigint) =>
+  buildExchangeMetaTx(
+    "raiseDispute(uint256)",
+    encodeFunctionData({
+      abi: RAISE_DISPUTE_ABI,
+      functionName: "raiseDispute",
+      args: [exchangeId],
+    }),
+    exchangeId,
+  );
+const retractDisputePayload = (exchangeId: bigint) =>
+  buildExchangeMetaTx(
+    "retractDispute(uint256)",
+    encodeFunctionData({
+      abi: RETRACT_DISPUTE_ABI,
+      functionName: "retractDispute",
+      args: [exchangeId],
+    }),
+    exchangeId,
+  );
+const escalateDisputePayload = (exchangeId: bigint) =>
+  buildExchangeMetaTx(
+    "escalateDispute(uint256)",
+    encodeFunctionData({
+      abi: ESCALATE_DISPUTE_ABI,
+      functionName: "escalateDispute",
+      args: [exchangeId],
+    }),
+    exchangeId,
+  );
+
 describe("BosonEscrowAdapter.refund (pre-redeem buyer-cancel)", () => {
   const refundInput = (over: Partial<RefundInput>): RefundInput => ({
     ctx: ctx(),
@@ -954,7 +991,7 @@ describe("BosonEscrowAdapter.dispute", () => {
       },
     });
     const res = await makeAdapter().dispute(
-      disputeInput({ evidence: { signed_payload: "0xabababab" } }),
+      disputeInput({ evidence: { signed_payload: await raiseDisputePayload(7n) } }),
     );
     expect(res.kind).toBe("ok");
     if (res.kind !== "ok") return;
@@ -977,7 +1014,10 @@ describe("BosonEscrowAdapter.dispute", () => {
       },
     });
     const res = await makeAdapter().dispute(
-      disputeInput({ action: "accept", evidence: { signed_payload: "0xabababab" } }),
+      disputeInput({
+        action: "accept",
+        evidence: { signed_payload: await retractDisputePayload(7n) },
+      }),
     );
     expect(res).toMatchObject({ kind: "ok" });
     expect(h.disputeRetractFn).toHaveBeenCalledTimes(1);
@@ -998,7 +1038,9 @@ describe("BosonEscrowAdapter.dispute", () => {
       },
     });
     await makeAdapter().dispute(
-      disputeInput({ evidence: { signed_payload: "0xabababab", boson_action: "escalate" } }),
+      disputeInput({
+        evidence: { signed_payload: await escalateDisputePayload(7n), boson_action: "escalate" },
+      }),
     );
     expect(h.disputeEscalateFn).toHaveBeenCalledTimes(1);
   });
@@ -1006,6 +1048,55 @@ describe("BosonEscrowAdapter.dispute", () => {
   it("rejects a dispute missing the signed meta-tx", async () => {
     const res = await makeAdapter().dispute(disputeInput({ evidence: {} }));
     expect(res).toMatchObject({ kind: "error", code: "INVALID_REQUEST" });
+  });
+
+  it("rejects a dispute payload that targets a DIFFERENT exchange before any relay", async () => {
+    // The site bind the Terminal enforces is on the request's exchange_id; the
+    // facilitator acts on the payload's OWN embedded id. validateDisputePayload
+    // makes them the same or refuses — here the payload raises exchange 999 while
+    // the input is exchange 7, so it never reaches the SDK handler.
+    const foreign = await raiseDisputePayload(999n);
+    const res = await makeAdapter().dispute(
+      disputeInput({ evidence: { signed_payload: foreign } }),
+    );
+    expect(res).toMatchObject({ kind: "error", code: "INVALID_REQUEST" });
+    expect(h.disputeRaiseFn).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-dispute payload (a cancelVoucher) smuggled as a raise", async () => {
+    // cancelVoucher shares the MetaTxExchange struct; accepted as a dispute it
+    // would advance the wrong action. The function-name check refuses it offline.
+    const notADispute = await cancelPayload(7n);
+    const res = await makeAdapter().dispute(
+      disputeInput({ evidence: { signed_payload: notADispute } }),
+    );
+    expect(res).toMatchObject({ kind: "error", code: "INVALID_REQUEST" });
+    expect(h.disputeRaiseFn).not.toHaveBeenCalled();
+  });
+
+  it("still relays resolve WITHOUT offline payload validation (counterparty-signed struct)", async () => {
+    // resolve is the mutual settlement leg — a different, counterparty-signed
+    // struct — so it is exempt from validateDisputePayload. A resolve with an
+    // opaque payload must still reach the SDK handler (the on-chain resolveDispute
+    // enforces the buyer/seller signatures itself).
+    h.disputeResolveFn.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: {
+        txHash: "0xresolve",
+        nextActions: {
+          exchangeId: "7",
+          exchangeState: "DISPUTED",
+          disputeState: "RESOLVED",
+          next: [],
+        },
+      },
+    });
+    const res = await makeAdapter().dispute(
+      disputeInput({ evidence: { signed_payload: "0xabababab", boson_action: "resolve" } }),
+    );
+    expect(res.kind).toBe("ok");
+    expect(h.disputeResolveFn).toHaveBeenCalledTimes(1);
   });
 
   it("surfaces the tx hash + escrow_state as rail_metadata on a clean raise", async () => {
@@ -1023,7 +1114,7 @@ describe("BosonEscrowAdapter.dispute", () => {
       },
     });
     const res = await makeAdapter().dispute(
-      disputeInput({ evidence: { signed_payload: "0xabababab" } }),
+      disputeInput({ evidence: { signed_payload: await raiseDisputePayload(7n) } }),
     );
     expect(res.kind).toBe("ok");
     if (res.kind !== "ok") return;
@@ -1046,7 +1137,7 @@ describe("BosonEscrowAdapter.dispute", () => {
     h.disputeRaiseFn.mockResolvedValue(stateVerify502("STATE_VERIFY_STATE_MISMATCH", "0xraise"));
     const res = await makeAdapterReturning(
       snapshot("1230000", { state: "DISPUTED", disputeState: "RESOLVING" }),
-    ).dispute(disputeInput({ evidence: { signed_payload: "0xabababab" } }));
+    ).dispute(disputeInput({ evidence: { signed_payload: await raiseDisputePayload(7n) } }));
     expect(res.kind).toBe("ok");
     if (res.kind !== "ok") return;
     expect(res.value).toMatchObject({ dispute_id: "7", status: "open" });
@@ -1086,7 +1177,7 @@ describe("BosonEscrowAdapter.dispute", () => {
   it("does NOT mask a hard reader error — surfaces the original 502", async () => {
     h.disputeRaiseFn.mockResolvedValue(stateVerify502("STATE_VERIFY_STATE_MISMATCH", "0xraise"));
     const res = await makeAdapterWithThrowingReader(new Error("rpc down")).dispute(
-      disputeInput({ evidence: { signed_payload: "0xabababab" } }),
+      disputeInput({ evidence: { signed_payload: await raiseDisputePayload(7n) } }),
     );
     expect(res).toMatchObject({ kind: "error", code: "SETTLEMENT_FAILED", retryable: true });
   });
@@ -1099,7 +1190,7 @@ describe("BosonEscrowAdapter.dispute", () => {
     });
     // Reader would throw if consulted — proves the guard short-circuits before any read.
     const res = await makeAdapterWithThrowingReader(new Error("should not read")).dispute(
-      disputeInput({ evidence: { signed_payload: "0xabababab" } }),
+      disputeInput({ evidence: { signed_payload: await raiseDisputePayload(7n) } }),
     );
     expect(res).toMatchObject({ kind: "error", code: "SETTLEMENT_FAILED", retryable: false });
   });
@@ -1111,7 +1202,7 @@ describe("BosonEscrowAdapter.dispute", () => {
       body: { code: "FACILITATOR_REJECTED", reason: "relay refused", details: {} },
     });
     const res = await makeAdapterWithThrowingReader(new Error("should not read")).dispute(
-      disputeInput({ evidence: { signed_payload: "0xabababab" } }),
+      disputeInput({ evidence: { signed_payload: await raiseDisputePayload(7n) } }),
     );
     expect(res).toMatchObject({ kind: "error", code: "SETTLEMENT_FAILED", retryable: true });
   });

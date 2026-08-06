@@ -64,8 +64,22 @@ export const BOSON_REDEEM_FUNCTION_NAME = "redeemVoucher(uint256)";
  *  Same MetaTxExchange struct family as redeem; only the function name differs. */
 export const BOSON_CANCEL_FUNCTION_NAME = "cancelVoucher(uint256)";
 
+/** The buyer-signed dispute functions. All three are `makeExchangeMetaTxSigner`
+ *  actions (verbatim from core-sdk's `signMetaTxRaiseDispute` /
+ *  `signMetaTxRetractDispute` / `signMetaTxEscalateDispute`), i.e. the SAME
+ *  MetaTxExchange struct family as redeem/cancel, over the dispute-handler iface —
+ *  only the function name (and its `(uint256 exchangeId)` selector) differ. The
+ *  mutual `resolveDispute` is deliberately absent: it carries a counterparty
+ *  signature in a different struct and is not a buyer-only exchange meta-tx. */
+export const BOSON_RAISE_DISPUTE_FUNCTION_NAME = "raiseDispute(uint256)";
+export const BOSON_RETRACT_DISPUTE_FUNCTION_NAME = "retractDispute(uint256)";
+export const BOSON_ESCALATE_DISPUTE_FUNCTION_NAME = "escalateDispute(uint256)";
+
 const REDEEM_ABI = parseAbi(["function redeemVoucher(uint256 _exchangeId)"]);
 const CANCEL_ABI = parseAbi(["function cancelVoucher(uint256 _exchangeId)"]);
+const RAISE_DISPUTE_ABI = parseAbi(["function raiseDispute(uint256 _exchangeId)"]);
+const RETRACT_DISPUTE_ABI = parseAbi(["function retractDispute(uint256 _exchangeId)"]);
+const ESCALATE_DISPUTE_ABI = parseAbi(["function escalateDispute(uint256 _exchangeId)"]);
 
 /** Why a payload was refused. Each is a hard refusal: none of these can arise from
  *  a well-formed redeem/cancel the buyer actually signed for this exchange. */
@@ -76,6 +90,9 @@ export type RedeemPayloadRejection =
   | "not_a_redeem"
   /** Decodes, but calls something other than cancelVoucher (e.g. redeemVoucher). */
   | "not_a_cancel"
+  /** Decodes, but calls something other than the requested dispute action (raise/
+   *  retract/escalate), e.g. a cancelVoucher smuggled in as a dispute. */
+  | "not_a_dispute"
   /** The calldata is not a well-formed <fn>(uint256) call. */
   | "calldata_unreadable"
   /** The signed exchange id is not the exchange this payload was filed against. */
@@ -273,4 +290,46 @@ export function validateCancelPayload(
     abi: CANCEL_ABI,
     wrongFunctionReason: "not_a_cancel",
   });
+}
+
+/** The buyer-only dispute meta-tx actions that share the MetaTxExchange struct
+ *  family. `resolve` is excluded on purpose (different, counterparty-signed
+ *  struct — see the function-name constants above). */
+export type DisputeMetaTxAction = "raise" | "retract" | "escalate";
+
+const DISPUTE_SPECS: Record<DisputeMetaTxAction, ExchangeActionSpec> = {
+  raise: {
+    functionName: BOSON_RAISE_DISPUTE_FUNCTION_NAME,
+    abi: RAISE_DISPUTE_ABI,
+    wrongFunctionReason: "not_a_dispute",
+  },
+  retract: {
+    functionName: BOSON_RETRACT_DISPUTE_FUNCTION_NAME,
+    abi: RETRACT_DISPUTE_ABI,
+    wrongFunctionReason: "not_a_dispute",
+  },
+  escalate: {
+    functionName: BOSON_ESCALATE_DISPUTE_FUNCTION_NAME,
+    abi: ESCALATE_DISPUTE_ABI,
+    wrongFunctionReason: "not_a_dispute",
+  },
+};
+
+/** Dispute uses the identical args shape as redeem/cancel, plus the specific
+ *  buyer action the payload must match. */
+export type ValidateDisputePayloadArgs = ValidateRedeemPayloadArgs & {
+  readonly action: DisputeMetaTxAction;
+};
+
+/** Validate that `signedPayload` is a buyer-signed dispute (raise/retract/escalate,
+ *  per `args.action`) for EXACTLY `args.exchangeId`. Self-binding over the exchange
+ *  id, same as redeem/cancel: it makes the site-bound exchange the Terminal
+ *  authorized the one the facilitator will actually act on (the SDK relays the
+ *  payload's OWN embedded exchange id, so without this the two can differ). The
+ *  dispute op layers the on-chain buyer-signature gate on top; `resolve` is not a
+ *  buyer-only action and is validated elsewhere. */
+export function validateDisputePayload(
+  args: ValidateDisputePayloadArgs,
+): Promise<RedeemPayloadValidation> {
+  return validateExchangeMetaTxPayload(args, DISPUTE_SPECS[args.action]);
 }

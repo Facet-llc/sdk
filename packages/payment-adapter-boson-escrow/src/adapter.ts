@@ -90,7 +90,7 @@ import {
 import type { UnsignedFullOffer } from "@bosonprotocol/x402-core/eip712";
 import { buildOfferMetadata, type BuiltOfferMetadata, type OfferProductInfo } from "./metadata.ts";
 import { bindingMismatchNativeCode, isBindingMismatchError } from "./binding-error.ts";
-import { validateCancelPayload } from "./redeem-payload.ts";
+import { validateCancelPayload, validateDisputePayload } from "./redeem-payload.ts";
 
 const PACKAGE_VERSION = "0.1.0";
 
@@ -957,6 +957,29 @@ export class BosonEscrowAdapter implements FacetPaymentRailAdapter {
       );
     }
     const kind = resolveDisputeKind(input);
+
+    // INTEGRITY (offline): a well-formed dispute meta-tx for EXACTLY this exchange,
+    // matching the requested action — the same self-binding guard the cancel path
+    // runs. The SDK/facilitator act on the payload's OWN embedded exchange id, so
+    // without this the site-bound exchange the Terminal authorized and the exchange
+    // the chain mutates could differ (a decorative site bind). `resolve` is exempt:
+    // it carries a counterparty signature in a different struct and is the mutual
+    // settlement leg, not a buyer-only exchange meta-tx.
+    if (kind === "raise" || kind === "retract" || kind === "escalate") {
+      const valid = await validateDisputePayload({
+        signedPayload,
+        exchangeId,
+        chainId: cfg.value.chainId,
+        verifyingContract: cfg.value.escrow,
+        action: kind,
+      });
+      if (!valid.ok) {
+        return errResult(
+          "INVALID_REQUEST",
+          `dispute payload rejected (${valid.reason}): ${valid.message}`,
+        );
+      }
+    }
 
     const built = this.buildServer(cfg.value);
     if (built.kind === "error") return built.error;

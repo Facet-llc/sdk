@@ -11,7 +11,11 @@ import { metaTransactionExchangeTypedData } from "@bosonprotocol/x402-core/eip71
 import { type Address, encodeFunctionData, type Hex, parseAbi } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { describe, expect, it } from "vitest";
-import { validateRedeemPayload } from "../src/redeem-payload.ts";
+import {
+  type DisputeMetaTxAction,
+  validateDisputePayload,
+  validateRedeemPayload,
+} from "../src/redeem-payload.ts";
 
 const DIAMOND: Address = "0x000000000000000000000000000000000000d1a3";
 const CHAIN_ID = 8453; // Base mainnet
@@ -129,5 +133,168 @@ describe("validateRedeemPayload", () => {
     const result = await validate(payload, "42");
     expect(result.ok).toBe(true);
     expect(result.signer?.toLowerCase()).toBe(ATTACKER.address.toLowerCase());
+  });
+});
+
+// The three buyer-only dispute actions share the redeem/cancel MetaTxExchange
+// struct family (core-sdk signs them via makeExchangeMetaTxSigner), so the same
+// self-binding validation applies — only the function name differs. resolve is
+// NOT here (a different, counterparty-signed struct). Explicit const ABIs so viem
+// infers the literal argument types (a dynamic parseAbi widens `abi` to `never`).
+const RAISE_ABI = parseAbi(["function raiseDispute(uint256 _exchangeId)"]);
+const RETRACT_ABI = parseAbi(["function retractDispute(uint256 _exchangeId)"]);
+const ESCALATE_ABI = parseAbi(["function escalateDispute(uint256 _exchangeId)"]);
+const DISPUTE_FUNCTION_NAME: Record<DisputeMetaTxAction, string> = {
+  raise: "raiseDispute(uint256)",
+  retract: "retractDispute(uint256)",
+  escalate: "escalateDispute(uint256)",
+};
+
+function disputeCalldata(action: DisputeMetaTxAction, exchangeId: bigint): Hex {
+  switch (action) {
+    case "raise":
+      return encodeFunctionData({
+        abi: RAISE_ABI,
+        functionName: "raiseDispute",
+        args: [exchangeId],
+      });
+    case "retract":
+      return encodeFunctionData({
+        abi: RETRACT_ABI,
+        functionName: "retractDispute",
+        args: [exchangeId],
+      });
+    case "escalate":
+      return encodeFunctionData({
+        abi: ESCALATE_ABI,
+        functionName: "escalateDispute",
+        args: [exchangeId],
+      });
+  }
+}
+
+/** A real buyer-signed dispute meta-tx for `action`, built exactly as a wallet's
+ *  makeExchangeMetaTxSigner would. */
+async function buildDisputePayload(opts: {
+  account: typeof BUYER;
+  action: DisputeMetaTxAction;
+  exchangeId: bigint;
+  calldataExchangeId?: bigint;
+}): Promise<string> {
+  const functionName = DISPUTE_FUNCTION_NAME[opts.action];
+  const typedData = await metaTransactionExchangeTypedData({
+    chainId: CHAIN_ID,
+    verifyingContract: DIAMOND,
+    nonce: 7n,
+    from: opts.account.address,
+    functionName,
+    exchangeId: opts.exchangeId,
+  });
+  // deno-lint-ignore no-explicit-any
+  const signature = await opts.account.signTypedData(typedData as any);
+  return encodeSignedPayload({
+    from: opts.account.address,
+    nonce: "7",
+    functionName,
+    functionSignature: disputeCalldata(opts.action, opts.calldataExchangeId ?? opts.exchangeId),
+    sig: {
+      v: parseInt(signature.slice(130, 132), 16),
+      r: signature.slice(0, 66) as Hex,
+      s: `0x${signature.slice(66, 130)}` as Hex,
+    },
+  });
+}
+
+describe("validateDisputePayload", () => {
+  const ACTIONS: DisputeMetaTxAction[] = ["raise", "retract", "escalate"];
+
+  for (const action of ACTIONS) {
+    it(`accepts a genuine buyer-signed ${action} for its own exchange`, async () => {
+      const payload = await buildDisputePayload({ account: BUYER, action, exchangeId: 42n });
+      const result = await validateDisputePayload({
+        signedPayload: payload,
+        exchangeId: "42",
+        chainId: CHAIN_ID,
+        verifyingContract: DIAMOND,
+        action,
+      });
+      expect(result.ok).toBe(true);
+      expect(result.signer?.toLowerCase()).toBe(BUYER.address.toLowerCase());
+    });
+  }
+
+  it("refuses a dispute filed against a DIFFERENT exchange", async () => {
+    const payload = await buildDisputePayload({ account: BUYER, action: "raise", exchangeId: 42n });
+    const result = await validateDisputePayload({
+      signedPayload: payload,
+      exchangeId: "99",
+      chainId: CHAIN_ID,
+      verifyingContract: DIAMOND,
+      action: "raise",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("exchange_id_mismatch");
+  });
+
+  it("refuses a payload whose action does not match the requested one", async () => {
+    // A retract payload submitted as a raise: the on-chain effect would differ
+    // from the action the Terminal authorized.
+    const payload = await buildDisputePayload({
+      account: BUYER,
+      action: "retract",
+      exchangeId: 42n,
+    });
+    const result = await validateDisputePayload({
+      signedPayload: payload,
+      exchangeId: "42",
+      chainId: CHAIN_ID,
+      verifyingContract: DIAMOND,
+      action: "raise",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("not_a_dispute");
+  });
+
+  it("refuses a non-dispute action (a redeem) smuggled as a dispute", async () => {
+    const payload = await buildPayload({ account: BUYER, exchangeId: 42n });
+    const result = await validateDisputePayload({
+      signedPayload: payload,
+      exchangeId: "42",
+      chainId: CHAIN_ID,
+      verifyingContract: DIAMOND,
+      action: "raise",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("not_a_dispute");
+  });
+
+  it("refuses calldata desynced from the signed exchange id", async () => {
+    const payload = await buildDisputePayload({
+      account: BUYER,
+      action: "raise",
+      exchangeId: 42n,
+      calldataExchangeId: 99n,
+    });
+    const result = await validateDisputePayload({
+      signedPayload: payload,
+      exchangeId: "42",
+      chainId: CHAIN_ID,
+      verifyingContract: DIAMOND,
+      action: "raise",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("exchange_id_mismatch");
+  });
+
+  it("refuses undecodable bytes rather than throwing", async () => {
+    const result = await validateDisputePayload({
+      signedPayload: "0xdeadbeef",
+      exchangeId: "42",
+      chainId: CHAIN_ID,
+      verifyingContract: DIAMOND,
+      action: "raise",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("payload_undecodable");
   });
 });

@@ -34,6 +34,26 @@ export const MCP_LATEST_VERSION = "2026-07-28";
 export const MCP_SUPPORTED_VERSIONS: readonly string[] = [MCP_LATEST_VERSION, "2025-06-18"];
 export const MCP_PROTOCOL_VERSION = MCP_LATEST_VERSION;
 
+// The newest version we support that predates the stateless era. `initialize` is
+// a LEGACY-era method (2026-07-28 removed it), so an initialize result must name
+// a legacy version: a modern one is an answer no legacy client can accept, and
+// the reference client rejects the handshake outright when it sees one.
+export const MCP_LATEST_LEGACY_VERSION = "2025-06-18";
+
+// The first revision of the STATELESS era. A declared version is "modern" when it
+// sorts at or after this one, and modern is what obliges a caller to carry the
+// 2026-07-28 `_meta` envelope. The comparison is a plain string compare, which is
+// correct because every MCP revision is an ISO-8601 date and those sort
+// lexicographically. The reference SDK models the same boundary with its own
+// FIRST_MODERN_PROTOCOL_VERSION constant.
+//
+// The ERA is a property of the VERSION, never of the channel it arrived on. A
+// legacy client that completed the `initialize` handshake then sends its
+// negotiated version in the MCP-Protocol-Version header on every later request,
+// so treating the header's mere presence as a modern signal rejected every stock
+// legacy client on its SECOND request.
+export const MCP_FIRST_MODERN_VERSION = "2026-07-28";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Error envelope
 // ─────────────────────────────────────────────────────────────────────────────
